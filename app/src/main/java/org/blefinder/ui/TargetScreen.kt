@@ -44,7 +44,7 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
                 Text(device.displayName ?: "Unnamed transmitter", fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 SelectionContainer { Text(device.address, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = FinderColors.neutral400) }
             }
-            AudioIndicator(state.audioMuted, state.settings.loudspeaker, repo::audioMute)
+            AudioIndicator(state.audioMuted, state.settings.loudspeaker, repo::cycleSoundMode)
         }
         SearchBanners(state, status, dismissStatus)
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -61,7 +61,7 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
             item {
                 SignalGraph(samples, state.nowElapsed, state.settings.rssiMin, state.settings.rssiMax, Modifier.fillMaxWidth().height(120.dp), grid = true)
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("60 s ago", fontSize = 10.sp, color = FinderColors.neutral500)
+                    Text("5 min ago", fontSize = 10.sp, color = FinderColors.neutral500)
                     Text("now", fontSize = 10.sp, color = FinderColors.neutral500)
                 }
             }

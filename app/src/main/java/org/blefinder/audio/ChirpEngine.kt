@@ -5,8 +5,6 @@ import android.os.Process
 import org.blefinder.core.*
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.PI
-import kotlin.math.sin
 
 internal interface PcmOutput : AutoCloseable {
     fun write(buffer: ShortArray, offset: Int, size: Int): Int
@@ -19,73 +17,103 @@ class ChirpEngine internal constructor(
     private val failure: (String) -> Unit,
     private val outputFactory: () -> PcmOutput,
     private val now: () -> Long,
+    private val recordingLoader: () -> Map<DiscoverySound, ShortArray> = { emptyMap() },
 ) : AutoCloseable {
     constructor(context: android.content.Context, failure: (String) -> Unit) :
-        this(failure, { androidOutput(context) }, android.os.SystemClock::elapsedRealtime)
-    private data class Tone(val hz: Double, val duration: Int, val gain: Float, val discovery: Boolean, val queuedAt: Long, val loudspeaker: Boolean)
+        this(failure, { androidOutput(context) }, android.os.SystemClock::elapsedRealtime, { loadDiscoveryRecordings(context) })
+    private data class Tone(val hz: Double, val duration: Int, val gain: Float, val sound: DiscoverySound?, val queuedAt: Long, val generation: Long)
     private val queue = ArrayBlockingQueue<Tone>(8)
     private val running = AtomicBoolean(true)
+    private val generation = java.util.concurrent.atomic.AtomicLong()
     @Volatile private var silenced = false
     @Volatile private var loudspeaker = false
     private val worker = Thread({ render() }, "BLE chirps").apply { start() }
-    fun silence(value: Boolean) { silenced = value; if (value) queue.clear() }
-    fun configure(settings: Settings) { loudspeaker = settings.loudspeaker }
+    fun silence(value: Boolean) {
+        silenced = value
+        if (value) { generation.incrementAndGet(); queue.clear() }
+    }
+    fun configure(settings: Settings) {
+        if (loudspeaker != settings.loudspeaker) {
+            generation.incrementAndGet(); queue.clear()
+            loudspeaker = settings.loudspeaker
+        }
+    }
+    fun preview(settings: Settings) {
+        configure(settings)
+        silence(true); silence(false)
+        if (settings.volume > 0) enqueue(Tone(1300.0, 80, settings.volume, settings.discoverySound, now(), generation.get()))
+    }
     fun offer(observation: Observation, discovered: Boolean, settings: Settings) {
         configure(settings)
         if (silenced || settings.volume <= 0) return
         val special = discovered && settings.discoveries
         if (!special && (!settings.chirps || observation.rssi !in -127..126)) return
-        val tone = Tone(PitchMapping.frequency(observation.rssi, settings), settings.chirpMs, settings.volume.coerceIn(0f, 1f), special, now(), settings.loudspeaker)
-        // Bound audio backlog only. Every scan result is still persisted independently.
+        enqueue(Tone(PitchMapping.frequency(observation.rssi, settings), settings.chirpMs, settings.volume.coerceIn(0f, 1f),
+            settings.discoverySound.takeIf { special }, now(), generation.get()))
+    }
+    private fun enqueue(tone: Tone) {
+        // Bound audio backlog only. Every scan result is persisted independently.
         if (!queue.offer(tone)) {
-            if (special) { queue.clear(); queue.offer(tone) }
-            else { queue.poll(); queue.offer(tone) }
+            if (tone.sound != null) queue.clear() else queue.poll()
+            queue.offer(tone)
         }
     }
     private fun render() {
         var output: PcmOutput? = null
         try {
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
-            val rate = 48000
+            val recordings = recordingLoader()
             output = outputFactory()
-            val buffer = ShortArray(4800)
+            val buffer = ShortArray(480) // Ten milliseconds, including during silence.
             var appliedSpeaker: Boolean? = null
+            var routeFrames = 0
+            var routeReported = false
+            var tone: Tone? = null
+            var pcm = ShortArray(0)
+            var position = 0
             while (running.get()) {
                 val requestedSpeaker = loudspeaker
                 if (appliedSpeaker != requestedSpeaker) {
-                    if (!output.setSpeaker(requestedSpeaker)) {
-                        failure("Requested audio route unavailable; chirps use the phone's current output.")
-                    }
-                    appliedSpeaker = requestedSpeaker
+                    routeReported = !output.setSpeaker(requestedSpeaker)
+                    if (routeReported) failure("Requested audio route unavailable; sound uses the current output at normal gain.")
+                    appliedSpeaker = requestedSpeaker; routeFrames = 0
                 }
-                val tone = queue.poll()?.takeIf { !silenced && now() - it.queuedAt <= 200 }
-                // Keep MODE_STREAM fed even with sparse target results or all audio muted.
-                // A lone chirp may otherwise never refill the startup/underrun threshold.
-                val duration = if (tone == null) 10 else if (tone.discovery) 80 else tone.duration
-                val size = rate * duration / 1000
-                // Boost only on a confirmed built-in speaker route, never on headphones.
-                val peak = if (tone?.loudspeaker == true && requestedSpeaker && output.isSpeakerRouted()) 32767 else 16000
-                buffer.fill(0, 0, size)
-                if (tone != null) for (i in 0 until size) {
-                    val t = i.toDouble() / rate
-                    val hz = if (tone.discovery) { if (i < size / 2) 1300.0 else 2100.0 } else tone.hz
-                    val segment = if (tone.discovery) size / 2 else size
-                    val pos = i % segment
-                    val envelope = minOf(1.0, pos / 120.0, (segment - 1 - pos) / 120.0).coerceAtLeast(0.0)
-                    buffer[i] = (sin(2 * PI * hz * t) * envelope * tone.gain * peak).toInt().coerceIn(-32767, 32767).toShort()
+                val speakerConfirmed = requestedSpeaker && output.isSpeakerRouted()
+                if (requestedSpeaker && !speakerConfirmed && !routeReported && ++routeFrames >= 50) {
+                    failure("Phone speaker routing was not confirmed. Sound uses the current output at normal gain.")
+                    routeReported = true
+                }
+                if (tone == null) {
+                    tone = queue.poll()?.takeIf { !silenced && it.generation == generation.get() && now() - it.queuedAt <= 200 }
+                    tone?.let {
+                        pcm = it.sound?.let(recordings::get) ?: chirpPcm(it.hz, if (it.sound == null) it.duration else 80, it.sound != null)
+                        position = 0
+                    }
+                }
+                buffer.fill(0)
+                tone?.let { active ->
+                    val cancelled = silenced || active.generation != generation.get()
+                    // Recheck the actual route for each block so headphones never receive the speaker boost.
+                    val gain = active.gain.coerceIn(0f, 1f).let { if (speakerConfirmed) (it * 2f).coerceAtMost(1f) else it }
+                    val scale = gain * (if (speakerConfirmed) 1f else 16000f / 32767f)
+                    val count = minOf(buffer.size, pcm.size - position)
+                    for (i in 0 until count) {
+                        val fade = if (cancelled) cosineFade(buffer.size - 1 - i, buffer.size - 1) else 1.0
+                        buffer[i] = (pcm[position + i] * scale * fade).toInt().coerceIn(-32767, 32767).toShort()
+                    }
+                    position += count
+                    if (cancelled || position >= pcm.size) tone = null
                 }
                 var offset = 0
-                while (offset < size && running.get()) {
-                    val chunk = minOf(480, size - offset)
-                    if (silenced) buffer.fill(0, offset, offset + chunk)
-                    val wrote = output.write(buffer, offset, chunk)
+                while (offset < buffer.size && running.get()) {
+                    val wrote = output.write(buffer, offset, buffer.size - offset)
                     check(wrote > 0) { "Audio output failed ($wrote)" }
                     offset += wrote
                 }
             }
         } catch (_: InterruptedException) { /* Normal shutdown. */ }
           catch (e: Exception) { failure("Audio unavailable; scanning continues: ${e.message}") }
-        finally { output?.close() }
+        finally { runCatching { output?.close() } }
     }
     override fun close() { running.set(false); queue.clear(); worker.interrupt() }
 }

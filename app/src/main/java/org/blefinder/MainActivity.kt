@@ -75,6 +75,7 @@ class MainActivity : ComponentActivity() {
         else startSearch(simulation)
     }
     private fun startSearch(simulation: Boolean) {
+        Readiness.startIssue(this, simulation)?.let { status = it; return }
         try { startForegroundService(Intent(this, SearchService::class.java).putExtra("simulate", simulation)) }
         catch (e: Exception) { status = "Could not start search: ${e.message}" }
     }

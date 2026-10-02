@@ -23,7 +23,7 @@ class SearchService : Service() {
     private var simulated = false
     private val bluetoothReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (!simulated && intent?.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) == BluetoothAdapter.STATE_OFF) {
+            if (!simulated && !stopping && intent?.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) in listOf(BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF)) {
                 repo.reportError("Bluetooth switched off. Search stopped; turn it on and start again."); end()
             }
         }
@@ -43,14 +43,12 @@ class SearchService : Service() {
         simulated = intent?.getBooleanExtra("simulate", false) == true && DemoFactory.available
         try {
             check(Readiness.scanPermissions(this)) { "Grant Nearby devices and precise location permissions before starting" }
-            if (!simulated) {
-                check(Readiness.bluetooth(this)) { "Bluetooth is disabled or this device has no BLE radio" }
-                check(Readiness.location(this)) { "Enable location services for proximity scanning" }
-            }
             val type = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
                 (if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0) else 0
             if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification(0), type)
             else startForeground(NOTIFICATION, notification(0))
+            // Promotion must precede radio checks: Bluetooth can switch off after the activity preflight.
+            Readiness.startIssue(this, simulated)?.let { repo.reportError(it); end(); return START_NOT_STICKY }
             wakeLock.start()
             scope.launch {
                 try {
@@ -103,12 +101,15 @@ class SearchService : Service() {
         if (stopping) return
         stopping = true
         wakeLock.stop()
-        source?.stop(); source = null; gps?.stop(); gps = null; audio?.close(); audio = null; repo.sound = null
-        scope.launch { try { repo.stop() } finally { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() } }
+        runCatching { source?.stop() }; source = null; runCatching { gps?.stop() }; gps = null; audio?.close(); audio = null; repo.sound = null
+        // Never leave a rejected foreground-service request waiting for database initialization.
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        (application as SearchApplication).scope.launch { runCatching { repo.stop() } }
     }
     override fun onDestroy() {
         wakeLock.stop()
-        source?.stop(); gps?.stop(); audio?.close(); repo.sound = null; repo.fatalError = null
+        runCatching { source?.stop() }; runCatching { gps?.stop() }; audio?.close(); repo.sound = null; repo.fatalError = null
         unregisterReceiver(bluetoothReceiver)
         scope.cancel()
         if (!stopping) (application as SearchApplication).scope.launch { runCatching { repo.stop() } }

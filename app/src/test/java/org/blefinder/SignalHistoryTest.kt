@@ -29,6 +29,8 @@ class SignalHistoryTest {
         val preferences = Preferences(context)
         preferences.settings(Settings()); preferences.mutes(emptySet())
         repo = SearchRepository(db, preferences, scope, storageUsage = { StorageUsage(0, Long.MAX_VALUE) }, elapsedNow = now::get)
+        repo.recent("unused")
+        assertFalse(repo.state.value.hasSearched)
         repo.start(true)
     }
     @After fun close() { scope.cancel(); db.close() }
@@ -43,20 +45,20 @@ class SignalHistoryTest {
         val oldSnapshot = repo.state.value.signalHistory
         assertEquals(listOf(1_000L, 60_000L), oldSnapshot["A"]!!.map { it.elapsedMillis })
         assertEquals(-75.0, oldSnapshot["A"]!!.last().smoothed, .001)
-        now.set(61_001); publish()
+        now.set(301_001); publish()
         assertEquals(listOf(60_000L), repo.state.value.signalHistory["A"]!!.map { it.elapsedMillis })
         assertEquals(2, oldSnapshot["A"]!!.size)
-        now.set(120_001); publish()
+        now.set(360_001); publish()
         assertTrue(repo.state.value.signalHistory.isEmpty())
         assertEquals(2L, db.dao().count(repo.state.value.sessionId!!))
         assertEquals(2L, repo.state.value.devices.single().stats.count)
     }
 
     @Test fun lateAndUnavailableSignalsAreStillLoggedAndFreshSessionsClearGraphs() = runBlocking {
-        now.set(100_000)
+        now.set(400_000)
         repo.receive(observation(-70, 1_000, "A"))
-        repo.receive(observation(127, 100_000, "B"))
-        repo.receive(observation(-50, 100_000, "C"))
+        repo.receive(observation(127, 400_000, "B"))
+        repo.receive(observation(-50, 400_000, "C"))
         publish()
         val id = repo.state.value.sessionId!!
         assertEquals(setOf("C"), repo.state.value.signalHistory.keys)
@@ -75,4 +77,21 @@ class SignalHistoryTest {
         assertEquals("Steady", trend(rising.map { it.copy(smoothed = -70.0) }, 60_000))
         assertEquals("Steady", trend(rising, 71_000))
     }
+    @Test fun stoppedStatusRequiresSearchAndSpeakerCyclesPreserveOtherSettings() = runBlocking {
+        assertTrue(repo.state.value.hasSearched)
+        repo.stop()
+        assertFalse(repo.state.value.active)
+        assertTrue(repo.state.value.hasSearched)
+        val settings = Settings(volume = .4f, discoverySound = org.blefinder.core.DiscoverySound.TUGBOAT)
+        repo.updateSettings(settings); publish()
+        repo.cycleSoundMode(); publish()
+        assertTrue(repo.state.value.settings.loudspeaker)
+        assertFalse(repo.state.value.audioMuted)
+        repo.cycleSoundMode(); publish()
+        assertTrue(repo.state.value.audioMuted)
+        repo.cycleSoundMode(); publish()
+        assertFalse(repo.state.value.audioMuted)
+        assertEquals(settings, repo.state.value.settings)
+    }
+
 }

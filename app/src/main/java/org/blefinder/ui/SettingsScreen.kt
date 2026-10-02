@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -21,6 +22,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.blefinder.R
+import kotlinx.coroutines.*
+import org.blefinder.audio.ChirpEngine
+import org.blefinder.core.DiscoverySound
 import org.blefinder.core.Settings
 import org.blefinder.core.PitchMapping
 import org.blefinder.data.*
@@ -30,6 +34,26 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsScreen(state: SearchState, repo: SearchRepository) {
     val s = state.settings
+    val context = LocalContext.current
+    val previewScope = rememberCoroutineScope()
+    var previewEngine by remember { mutableStateOf<ChirpEngine?>(null) }
+    var previewShutdown by remember { mutableStateOf<Job?>(null) }
+    DisposableEffect(Unit) { onDispose { previewShutdown?.cancel(); previewEngine?.close() } }
+    LaunchedEffect(s.loudspeaker, state.audioMuted) {
+        previewEngine?.configure(s)
+        if (state.audioMuted) previewEngine?.silence(true)
+    }
+    fun preview(sound: DiscoverySound) {
+        if (state.audioMuted) return
+        previewShutdown?.cancel()
+        val engine = previewEngine ?: ChirpEngine(context, repo::reportError).also { previewEngine = it }
+        engine.preview(s.copy(discoverySound = sound))
+        previewShutdown = previewScope.launch {
+            delay(3000)
+            engine.close()
+            if (previewEngine === engine) previewEngine = null
+        }
+    }
     var page by rememberSaveable { mutableStateOf<String?>(null) }
     var slider by remember { mutableStateOf<String?>(null) }
     BackHandler(page != null || slider != null) { if (slider != null) slider = null else page = null }
@@ -37,10 +61,24 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
         if (page != null) {
             item { Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { page = null }) { FinderIcon(R.drawable.ic_arrow_left, description = "Back to settings") }
-                Text(when (page) { "pitch" -> "Chirp pitch"; "mutes" -> "Always-muted addresses"; else -> "Privacy" }, style = MaterialTheme.typography.titleLarge)
+                Text(when (page) { "pitch" -> "Chirp pitch"; "sounds" -> "New-device sound"; "mutes" -> "Always-muted addresses"; else -> "Privacy" }, style = MaterialTheme.typography.titleLarge)
             } }
             when (page) {
                 "pitch" -> item { PitchControls(s) { repo.updateSettings(it) } }
+                "sounds" -> {
+                    item { SmallNote("Recordings are bundled with the app and work offline. Preview uses app and phone media volume. ${if (state.audioMuted) "Unmute audio to preview." else ""}") }
+                    items(DiscoverySound.entries) { sound ->
+                        FinderCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { repo.updateSettings(s.copy(discoverySound = sound)) }, verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = s.discoverySound == sound, onClick = { repo.updateSettings(s.copy(discoverySound = sound)) },
+                                    colors = RadioButtonDefaults.colors(selectedColor = FinderColors.accent, unselectedColor = FinderColors.neutral500))
+                                Text(sound.label, Modifier.weight(1f))
+                            }
+                            ActionButton("Preview", { preview(sound) }, enabled = !state.audioMuted && s.volume > 0)
+                        } }
+                    }
+                    item { RecordingCredits() }
+                }
                 "mutes" -> {
                     item {
                         SmallNote("Matches exact BLE addresses across sessions. A rotating address may reappear under a different address.")
@@ -65,9 +103,10 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
                 FadingDivider()
                 Toggle("New-device notification", s.discoveries) { repo.updateSettings(s.copy(discoveries = it)) }
                 SmallNote("Sound when an address first appears in this session.")
+                SettingsRow("Notification sound", s.discoverySound.label) { page = "sounds" }
                 FadingDivider()
                 Toggle("Loudspeaker mode", s.loudspeaker) { repo.updateSettings(s.copy(loudspeaker = it)) }
-                SmallNote("Prefers the phone speaker over connected headphones and boosts chirps. Use the audio slider and phone media volume to adjust loudness.")
+                SmallNote("Prefers the phone speaker over connected headphones and boosts sound on the confirmed speaker route. System media volume still limits loudness. The header button cycles normal, loudspeaker and muted audio.")
                 SettingSlider("Volume", s.volume, 0f..1f, { "${(it * 100).roundToInt()}%" }) { repo.updateSettings(s.copy(volume = it)) }
                 SmallNote("Uses the phone's media/sonification output. Check system volume and audio routing before walking.")
             }
@@ -168,4 +207,19 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
             SettingSlider("Chirp duration", s.chirpMs.toFloat(), 20f..50f, { "${it.roundToInt()} ms" }) { changed(s.copy(chirpMs = it.roundToInt())) }
         }
     }
+}
+
+@Composable private fun RecordingCredits() {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SmallNote("Tugboat horn: a steam whistle recorded on Nixe by Work With Sounds / Konrad Gutkowski with Jonathan Nicolai. Oropendola calls: Richard Ranft, copyright The British Library Board. Both are shortened, filtered and normalized excerpts.")
+        CreditLink("Tugboat recording", "https://commons.wikimedia.org/wiki/File:WWS_Steamwhistle.ogg")
+        CreditLink("Oropendola recording", "https://commons.wikimedia.org/wiki/File:Montezuma_Oropendola_(Psarocolius_montezuma)_(W_PSAROCOLIUS_MONTEZUMA_R1_C4).ogg")
+        CreditLink("Recording license: CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/")
+    }
+}
+
+@Composable private fun CreditLink(label: String, url: String) {
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    Text(label, fontSize = 11.sp, color = FinderColors.accent300,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { uriHandler.openUri(url) }.padding(vertical = 14.dp))
 }

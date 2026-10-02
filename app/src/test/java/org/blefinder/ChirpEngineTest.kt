@@ -134,7 +134,7 @@ class ChirpEngineTest {
             repeat(3) { output.next() }
             engine.offer(observation(), false, settings)
             val peak = (1..5).flatMap { output.next().toList() }.maxOf { kotlin.math.abs(it.toInt()) }
-            assertTrue(peak in 7500..8192)
+            assertTrue(peak in 15000..16384)
             engine.offer(observation(), false, settings.copy(volume = 0f))
             repeat(5) { assertTrue(output.next().all { it == 0.toShort() }) }
             engine.silence(true)
@@ -143,4 +143,24 @@ class ChirpEngineTest {
             assertTrue(failures.isEmpty())
         } finally { engine.close(); assertTrue(output.closed.await(5, TimeUnit.SECONDS)) }
     }
+    @Test fun selectedRecordingPlaysBeyondChirpBufferAndMuteCancelsWithFade() {
+        val output = Output()
+        val failures = LinkedBlockingQueue<String>()
+        val recording = ShortArray(48_000) { 20_000 }
+        val engine = ChirpEngine(failures::add, { output }, { 0L }, { mapOf(org.blefinder.core.DiscoverySound.OROPENDOLA to recording) })
+        try {
+            repeat(3) { output.next() }
+            engine.offer(observation(), true, Settings(volume = 1f, discoverySound = org.blefinder.core.DiscoverySound.OROPENDOLA))
+            val chunks = (1..15).map { output.next() }
+            assertTrue(chunks.last().all { it > 9000 })
+            // Target changes silence and immediately unmute; the old recording must still stop.
+            engine.silence(true); engine.silence(false)
+            val cancellation = (1..4).map { output.next() }
+            val fade = cancellation.first { it.first() > 0 && it.last() == 0.toShort() }
+            assertTrue(fade.toList().zipWithNext().all { (a, b) -> a >= b })
+            assertTrue(cancellation.last().all { it == 0.toShort() })
+            assertTrue(failures.isEmpty())
+        } finally { engine.close(); assertTrue(output.closed.await(5, TimeUnit.SECONDS)) }
+    }
+
 }

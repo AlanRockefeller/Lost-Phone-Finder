@@ -79,10 +79,10 @@ fun SearchApp(repo: SearchRepository, status: String?, dismissStatus: () -> Unit
                     Column(Modifier.weight(1f)) {
                         Text(stringResource(R.string.app_name), fontSize = 20.sp, fontWeight = FontWeight.Medium)
                         val seconds = (state.nowElapsed - state.sessionStartedElapsed).coerceAtLeast(0) / 1000
-                        Text(if (state.active) "Searching · %02d:%02d · %d addresses".format(seconds / 60, seconds % 60, state.devices.size) else "Search stopped",
+                        Text(if (state.active) "Searching · %02d:%02d · %d addresses".format(seconds / 60, seconds % 60, state.devices.size) else if (state.hasSearched) "Search stopped" else "Ready to search",
                             fontSize = 12.sp, color = FinderColors.accent300)
                     }
-                    AudioIndicator(state.audioMuted, state.settings.loudspeaker, repo::audioMute)
+                    AudioIndicator(state.audioMuted, state.settings.loudspeaker, repo::cycleSoundMode)
                     ActionButton(if (state.active) "Stop" else "Start", { if (state.active) stop() else explain = true }, enabled = state.ready)
                 }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, top = 10.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {

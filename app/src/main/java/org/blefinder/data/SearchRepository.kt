@@ -10,6 +10,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 // Graph samples stay in memory and never enter the stored observation or schema.
+const val SIGNAL_HISTORY_MS = 300_000L
+
 data class RssiSample(val elapsedMillis: Long, val rssi: Int, val smoothed: Double)
 
 data class SearchState(
@@ -21,7 +23,7 @@ data class SearchState(
     val audioMuted: Boolean = false, val error: String? = null,
     val nowElapsed: Long = 0, val nowWall: Long = 0,
     val signalHistory: Map<String, List<RssiSample>> = emptyMap(),
-    val sessionStartedElapsed: Long = 0,
+    val sessionStartedElapsed: Long = 0, val hasSearched: Boolean = false,
 )
 // Mutable search state lives on one serial command consumer. UI snapshots are published at 5 Hz.
 class SearchRepository(val db: SearchDatabase, private val preferences: Preferences,
@@ -80,7 +82,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         return reply.await()
     }
     private fun publish() {
-        val cutoff = elapsedNow() - 60_000
+        val cutoff = elapsedNow() - SIGNAL_HISTORY_MS
         signalHistory.values.forEach { samples -> samples.removeAll { it.elapsedMillis < cutoff } }
         signalHistory.entries.removeAll { it.value.isEmpty() }
         current = current.copy(devices = devices.values.toList(), targetStats = current.target?.let { targetOverride ?: devices[it]?.stats },
@@ -104,7 +106,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         }
         session = session!!.copy(endedAt = null, status = "active")
         db.dao().putSession(session!!)
-        current = current.copy(active = true, simulated = simulated, error = null)
+        current = current.copy(active = true, hasSearched = true, simulated = simulated, error = null)
         backlogFailure.set(null); acceptingResults = true
         nextStorageCheck = elapsedNow() + 1000
         resultsSinceStorageCheck = 0
@@ -199,7 +201,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         }
         resultsSinceStorageCheck++
         devices[o.address] = record
-        if (o.rssi in -127..126 && o.elapsedMillis >= elapsedNow() - 60_000) {
+        if (o.rssi in -127..126 && o.elapsedMillis >= elapsedNow() - SIGNAL_HISTORY_MS) {
             val samples = signalHistory.getOrPut(o.address) { ArrayDeque() }
             samples.addLast(RssiSample(o.elapsedMillis, o.rssi, requireNotNull(stats.smoothed)))
         }
@@ -211,6 +213,15 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     fun selectTarget(address: String?) = enqueue { current = current.copy(target = address); targetOverride = null; event("target", address ?: "scan mode"); publish() }
     fun clearTargetStats() = enqueue { targetOverride = SignalStats(); event("reset_target_statistics", current.target ?: "none"); publish() }
     fun audioMute() = enqueue { current = current.copy(audioMuted = !current.audioMuted); publish() }
+    fun cycleSoundMode() = enqueue {
+        val next = when {
+            current.audioMuted -> current.copy(audioMuted = false, settings = current.settings.copy(loudspeaker = false))
+            !current.settings.loudspeaker -> current.copy(settings = current.settings.copy(loudspeaker = true))
+            else -> current.copy(audioMuted = true, settings = current.settings.copy(loudspeaker = false))
+        }
+        preferences.settings(next.settings)
+        current = next; publish()
+    }
     fun setMute(address: String, always: Boolean = false, muted: Boolean = true) = enqueue {
         val updated = if (muted) current.mutes.mute(address, always) else current.mutes.unmute(address)
         preferences.mutes(updated.persistent)

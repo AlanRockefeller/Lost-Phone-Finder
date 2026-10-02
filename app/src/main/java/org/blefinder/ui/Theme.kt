@@ -119,14 +119,14 @@ fun trend(samples: List<RssiSample>, now: Long): String {
 
 @Composable fun SignalGraph(samples: List<RssiSample>, now: Long, min: Int, max: Int,
     modifier: Modifier, muted: Boolean = false, grid: Boolean = false) {
-    Canvas(modifier.semantics { contentDescription = "RSSI over the last 60 seconds, from $min to $max dBm" }) {
+    Canvas(modifier.semantics { contentDescription = "RSSI over the last 5 minutes, from $min to $max dBm" }) {
         if (grid) repeat(3) { i ->
             val y = size.height * (i + 1) / 4f
             drawLine(FinderColors.neutral800, Offset(0f, y), Offset(size.width, y), 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx())))
         }
-        val points = samples.filter { it.elapsedMillis in (now - 60_000)..now }.sortedBy { it.elapsedMillis }
+        val points = samples.filter { it.elapsedMillis in (now - SIGNAL_HISTORY_MS)..now }.sortedBy { it.elapsedMillis }
         if (points.isEmpty()) return@Canvas
-        fun x(p: RssiSample) = size.width * ((p.elapsedMillis - (now - 60_000)) / 60_000f).coerceIn(0f, 1f)
+        fun x(p: RssiSample) = size.width * ((p.elapsedMillis - (now - SIGNAL_HISTORY_MS)) / SIGNAL_HISTORY_MS.toFloat()).coerceIn(0f, 1f)
         fun y(p: RssiSample) = size.height * (1f - ((p.rssi - min).toFloat() / (max - min).coerceAtLeast(1)).coerceIn(0f, 1f))
         // Gaps stay visible; the line never extends to now after a device falls silent.
         val segments = mutableListOf<MutableList<RssiSample>>()
