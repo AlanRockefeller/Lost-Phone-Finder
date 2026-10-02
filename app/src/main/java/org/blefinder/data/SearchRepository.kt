@@ -9,7 +9,9 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
-// Mutable search state lives on one serial command consumer. UI snapshots are published at 5 Hz.
+// Graph samples stay in memory and never enter the stored observation or schema.
+data class RssiSample(val elapsedMillis: Long, val rssi: Int, val smoothed: Double)
+
 data class SearchState(
     val ready: Boolean = false, val active: Boolean = false, val sessionId: String? = null,
     val simulated: Boolean = false, val devices: List<DeviceRecord> = emptyList(),
@@ -18,7 +20,10 @@ data class SearchState(
     val baseline: Baseline? = null, val baselineReview: Set<String> = emptySet(),
     val audioMuted: Boolean = false, val error: String? = null,
     val nowElapsed: Long = 0, val nowWall: Long = 0,
+    val signalHistory: Map<String, List<RssiSample>> = emptyMap(),
+    val sessionStartedElapsed: Long = 0,
 )
+// Mutable search state lives on one serial command consumer. UI snapshots are published at 5 Hz.
 class SearchRepository(val db: SearchDatabase, private val preferences: Preferences,
     private val scope: CoroutineScope,
     private val limits: StorageLimits = StorageLimits(),
@@ -37,6 +42,8 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     val sessions = db.dao().sessions()
     private var current = SearchState()
     private val devices = linkedMapOf<String, DeviceRecord>()
+    private val signalHistory = linkedMapOf<String, ArrayDeque<RssiSample>>()
+    private var sessionStartedElapsed = 0L
     private var session: SessionEntity? = null
     private var targetOverride: SignalStats? = null
     private val initialized = CompletableDeferred<Unit>()
@@ -73,8 +80,12 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         return reply.await()
     }
     private fun publish() {
+        val cutoff = elapsedNow() - 60_000
+        signalHistory.values.forEach { samples -> samples.removeAll { it.elapsedMillis < cutoff } }
+        signalHistory.entries.removeAll { it.value.isEmpty() }
         current = current.copy(devices = devices.values.toList(), targetStats = current.target?.let { targetOverride ?: devices[it]?.stats },
-            nowElapsed = elapsedNow(), nowWall = System.currentTimeMillis())
+            nowElapsed = elapsedNow(), nowWall = System.currentTimeMillis(),
+            signalHistory = signalHistory.mapValues { it.value.toList() }, sessionStartedElapsed = sessionStartedElapsed)
         mutable.value = current
     }
     private fun event(type: String, detail: String) { session?.let { db.dao().event(EventEntity(sessionId = it.id, timestamp = System.currentTimeMillis(), type = type, detail = detail)) } }
@@ -101,7 +112,8 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     }
     private fun createSession(simulated: Boolean) {
         val s = SessionEntity(UUID.randomUUID().toString(), System.currentTimeMillis(), simulated = simulated, settingsJson = SearchJson.encodeToString(current.settings))
-        db.dao().putSession(s); session = s; devices.clear(); targetOverride = null
+        sessionStartedElapsed = elapsedNow()
+        db.dao().putSession(s); session = s; devices.clear(); signalHistory.clear(); targetOverride = null
         current = current.copy(sessionId = s.id, simulated = simulated, mutes = current.mutes.nextSession(), target = null,
             baseline = null, baselineReview = emptySet())
     }
@@ -187,6 +199,10 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         }
         resultsSinceStorageCheck++
         devices[o.address] = record
+        if (o.rssi in -127..126 && o.elapsedMillis >= elapsedNow() - 60_000) {
+            val samples = signalHistory.getOrPut(o.address) { ArrayDeque() }
+            samples.addLast(RssiSample(o.elapsedMillis, o.rssi, requireNotNull(stats.smoothed)))
+        }
         if (o.target && targetOverride != null) targetOverride = targetOverride!!.add(o, current.settings.smoothing)
     }
     fun location(fix: GeoFix) = enqueue {
