@@ -22,7 +22,8 @@ import org.blefinder.data.*
 
 @Composable
 fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepository,
-    export: (String, String?, Boolean) -> Unit, stop: () -> Unit) {
+    export: (String, String?, Boolean) -> Unit, stop: () -> Unit,
+    status: String? = null, dismissStatus: () -> Unit = {}) {
     val stats = state.targetStats ?: device.stats
     var raw by rememberSaveable(device.address) { mutableStateOf(false) }
     var decoded by rememberSaveable(device.address) { mutableStateOf(false) }
@@ -45,6 +46,7 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
             }
             AudioIndicator(state.audioMuted, state.settings.loudspeaker, repo::audioMute)
         }
+        SearchBanners(state, status, dismissStatus)
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
                 Text("TRACKING · ONLY THIS TARGET SOUNDS", fontSize = 10.sp, color = FinderColors.accent)

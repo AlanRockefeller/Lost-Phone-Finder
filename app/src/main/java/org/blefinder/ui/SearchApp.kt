@@ -73,7 +73,7 @@ fun SearchApp(repo: SearchRepository, status: String?, dismissStatus: () -> Unit
         Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(FinderColors.surface, FinderColors.bg), endY = gradientEnd)).safeDrawingPadding()) {
             val target = state.devices.find { it.address == state.target }
             if (target != null) {
-                TargetScreen(state, target, repo, export, stop)
+                TargetScreen(state, target, repo, export, stop, status, dismissStatus)
             } else {
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -94,13 +94,7 @@ fun SearchApp(repo: SearchRepository, status: String?, dismissStatus: () -> Unit
                     }
                 }
                 FadingDivider()
-                if (state.simulated && state.sessionId != null) Banner("Simulation · Synthetic observations")
-                if (context.getSystemService(PowerManager::class.java).isPowerSaveMode) Banner("Battery saver on · Detection may be reduced")
-                state.error?.let { Banner(it) }
-                if (status != null) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) { Banner(status) }
-                    ActionButton("Dismiss", dismissStatus, secondary = true)
-                }
+                SearchBanners(state, status, dismissStatus)
                 Box(Modifier.weight(1f)) {
                     tabState.SaveableStateProvider(tab) {
                         when (tab) {
@@ -137,6 +131,17 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FinderIcon(R.drawable.ic_info)
         Text(text, fontSize = 12.sp, color = FinderColors.accent300)
+    }
+}
+
+@Composable fun SearchBanners(state: SearchState, status: String?, dismissStatus: () -> Unit) {
+    val context = LocalContext.current
+    if (state.simulated && state.sessionId != null) Banner("Simulation · Synthetic observations")
+    if (context.getSystemService(PowerManager::class.java).isPowerSaveMode) Banner("Battery saver on · Detection may be reduced")
+    state.error?.let { Banner(it) }
+    if (status != null) Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) { Banner(status) }
+        ActionButton("Dismiss", dismissStatus, secondary = true)
     }
 }
 
