@@ -56,6 +56,7 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
                 repo.setMute(device.address, muted = !state.mutes.isMuted(device.address))
             }
             Text("Mute state: ${state.mutes.kind(device.address)} • All audio: ${if (state.audioMuted) "muted" else "on"}")
+            Text("Screen-off scanning stays broad; only this target sounds while tracking. Keep media volume up and press Stop when finished. Phone power settings may still limit results.", style = MaterialTheme.typography.bodySmall)
             MuteButtons(device.address, state.mutes, repo)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = repo::audioMute, modifier = Modifier.weight(1f)) { Text(if (state.audioMuted) "Enable audio" else "Mute all audio") }

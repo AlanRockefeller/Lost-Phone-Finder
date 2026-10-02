@@ -63,9 +63,10 @@ class StorageTest {
     }
     @Test fun settingsAreSavedAndValidated() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        Preferences(context).settings(Settings(chirps = false, baselineSeconds = 60))
+        Preferences(context).settings(Settings(chirps = false, baselineSeconds = 60, loudspeaker = true))
         val settings = Preferences(context).load().first
         assertFalse(settings.chirps); assertEquals(60, settings.baselineSeconds)
+        assertTrue(settings.loudspeaker)
     }
     @Test fun trackingAnExistingDeviceKeepsItsRssiAudioAndFiltersOtherDevices() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()

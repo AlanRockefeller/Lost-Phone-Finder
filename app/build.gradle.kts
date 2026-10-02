@@ -21,8 +21,8 @@ android {
         applicationId = "org.blefinder"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 5
+        versionName = "0.1.4"
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -35,16 +35,19 @@ android {
             keyAlias = requireNotNull(releaseSigning.getProperty("keyAlias"))
             keyPassword = requireNotNull(releaseSigning.getProperty("keyPassword"))
         }
+        buildTypes.getByName("debug").signingConfig = signing
         buildTypes.getByName("release").signingConfig = signing
     }
-    // Reuse the original field-test certificate when replacing a fallback APK.
+    // Both variants must use the same field-test certificate for in-place switching.
     providers.gradleProperty("fieldTestKeystore").orNull?.let { path ->
-        signingConfigs.getByName("debug") {
+        val signing = signingConfigs.create("fieldTest") {
             storeFile = rootProject.file(path)
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        buildTypes.getByName("debug").signingConfig = signing
+        buildTypes.getByName("release").signingConfig = signing
     }
 }
 androidComponents {

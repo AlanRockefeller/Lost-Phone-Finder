@@ -27,6 +27,15 @@ class ChirpEngineTest {
         val writes = LinkedBlockingQueue<ShortArray>()
         val advance = Semaphore(0)
         val closed = CountDownLatch(1)
+        val routes = LinkedBlockingQueue<Boolean>()
+        var acceptSpeaker = true
+        private var speaker = false
+        override fun setSpeaker(enabled: Boolean): Boolean {
+            routes.add(enabled)
+            speaker = enabled && acceptSpeaker
+            return !enabled || acceptSpeaker
+        }
+        override fun isSpeakerRouted() = speaker
         override fun write(buffer: ShortArray, offset: Int, size: Int): Int {
             advance.acquire()
             writes.put(buffer.copyOfRange(offset, offset + size))
@@ -76,5 +85,62 @@ class ChirpEngineTest {
             engine.close()
             assertTrue(output.closed.await(5, TimeUnit.SECONDS))
         }
+    }
+
+    @Test fun speakerModeBoostsOnlyTheSpeakerAndRestoresDefaultRoutingWhenDisabled() {
+        val output = Output()
+        val failures = LinkedBlockingQueue<String>()
+        val engine = ChirpEngine(failures::add, { output }, { 0L })
+        try {
+            output.next()
+            val normal = Settings(volume = 1f)
+            engine.offer(observation(), false, normal)
+            val ordinary = (1..5).flatMap { output.next().toList() }.maxOf { kotlin.math.abs(it.toInt()) }
+            assertTrue(ordinary in 15000..16000)
+            engine.configure(normal.copy(loudspeaker = true))
+            repeat(3) { output.next() }
+            engine.offer(observation(), false, normal.copy(loudspeaker = true))
+            val boosted = (1..5).flatMap { output.next().toList() }.maxOf { kotlin.math.abs(it.toInt()) }
+            assertTrue(boosted in 30000..32767)
+            engine.configure(normal)
+            repeat(3) { output.next() }
+            assertEquals(listOf(false, true, false), output.routes.toList())
+            assertTrue(failures.isEmpty())
+        } finally { engine.close(); assertTrue(output.closed.await(5, TimeUnit.SECONDS)) }
+    }
+
+    @Test fun rejectedSpeakerRouteKeepsOrdinaryGainAndReportsFailureWithoutStoppingOutput() {
+        val output = Output().apply { acceptSpeaker = false }
+        val failures = LinkedBlockingQueue<String>()
+        val engine = ChirpEngine(failures::add, { output }, { 0L })
+        try {
+            val settings = Settings(volume = 1f, loudspeaker = true)
+            engine.configure(settings)
+            repeat(3) { output.next() }
+            engine.offer(observation(), false, settings)
+            val peak = (1..5).flatMap { output.next().toList() }.maxOf { kotlin.math.abs(it.toInt()) }
+            assertTrue(peak in 15000..16000)
+            assertEquals(1, failures.size)
+        } finally { engine.close(); assertTrue(output.closed.await(5, TimeUnit.SECONDS)) }
+    }
+
+    @Test fun speakerBoostStillRespectsAppVolumeAndMute() {
+        val output = Output()
+        val failures = LinkedBlockingQueue<String>()
+        val engine = ChirpEngine(failures::add, { output }, { 0L })
+        try {
+            val settings = Settings(volume = 0.25f, loudspeaker = true)
+            engine.configure(settings)
+            repeat(3) { output.next() }
+            engine.offer(observation(), false, settings)
+            val peak = (1..5).flatMap { output.next().toList() }.maxOf { kotlin.math.abs(it.toInt()) }
+            assertTrue(peak in 7500..8192)
+            engine.offer(observation(), false, settings.copy(volume = 0f))
+            repeat(5) { assertTrue(output.next().all { it == 0.toShort() }) }
+            engine.silence(true)
+            engine.offer(observation(), false, settings)
+            repeat(5) { assertTrue(output.next().all { it == 0.toShort() }) }
+            assertTrue(failures.isEmpty())
+        } finally { engine.close(); assertTrue(output.closed.await(5, TimeUnit.SECONDS)) }
     }
 }

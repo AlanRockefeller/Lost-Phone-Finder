@@ -12,13 +12,16 @@ interface BleSource { fun start(); fun stop() }
 
 @SuppressLint("MissingPermission") // UI and service independently check runtime prerequisites before starting.
 class AndroidBleSource(context: Context, private val receive: (Observation) -> Unit,
+
     private val failure: (String) -> Unit) : BleSource {
     private val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
     private var scanner: BluetoothLeScanner? = null
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) = deliver(callbackType, result)
         override fun onBatchScanResults(results: MutableList<ScanResult>) { results.forEach { deliver(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, it) } }
-        override fun onScanFailed(errorCode: Int) = failure("BLE scan failed ($errorCode): " + when (errorCode) {
+        override fun onScanFailed(errorCode: Int) {
+            if (scanner == null) return
+            failure("BLE scan failed ($errorCode): " + when (errorCode) {
             SCAN_FAILED_ALREADY_STARTED -> "already started"
             SCAN_FAILED_APPLICATION_REGISTRATION_FAILED -> "Android scanner registration failed; stop and retry"
             SCAN_FAILED_FEATURE_UNSUPPORTED -> "scan configuration unsupported by this phone"
@@ -26,7 +29,8 @@ class AndroidBleSource(context: Context, private val receive: (Observation) -> U
             5 -> "out of hardware resources"
             6 -> "Android scan start limit reached; wait at least 30 seconds before retrying"
             else -> "unknown Android scanner error"
-        })
+            })
+        }
     }
     override fun start() {
         check(adapter?.isEnabled == true) { "Enable Bluetooth before searching" }
@@ -38,9 +42,12 @@ class AndroidBleSource(context: Context, private val receive: (Observation) -> U
         // Active is the platform default. Explicit selection is available from 36.1;
         // guard at the next major API for compatibility with Android 16.0.
         if (Build.VERSION.SDK_INT >= 37) settings.setScanType(ScanSettings.SCAN_TYPE_ACTIVE)
-        scanner!!.startScan(null, settings.build(), callback)
+        scanner!!.startScan(screenOffDiscoveryFilters(), settings.build(), callback)
     }
-    override fun stop() { runCatching { scanner?.stopScan(callback) }; scanner = null }
+    override fun stop() {
+        val previous = scanner; scanner = null
+        runCatching { previous?.stopScan(callback) }
+    }
     private fun deliver(type: Int, result: ScanResult) {
         if (scanner == null) return // Ignore callbacks delivered after this source was stopped.
         try {
@@ -75,3 +82,15 @@ class AndroidBleSource(context: Context, private val receive: (Observation) -> U
           catch (e: Exception) { failure("Could not preserve a scan result: ${e.message}") }
     }
 }
+
+/**
+ * Preserve discovery of arbitrary NEW advertisers with OR filters. The UUID branch
+ * is a concrete filter; the unconstrained branch preserves broad matching.
+ * AOSP ScanManager requires at least one nonempty branch to avoid screen-off
+ * suspension. This is a compatibility workaround, not an Android/OEM guarantee.
+ */
+internal fun screenOffDiscoveryFilters(): List<ScanFilter> = listOf(
+    ScanFilter.Builder().setServiceUuid(android.os.ParcelUuid.fromString(
+        "0000180f-0000-1000-8000-00805f9b34fb")).build(),
+    ScanFilter.Builder().build(),
+)

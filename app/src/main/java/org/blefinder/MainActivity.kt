@@ -84,6 +84,6 @@ class MainActivity : ComponentActivity() {
         val suffix = if (address == null) "session" else address.replace(":", "")
         document.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
             .setType(if (json) "application/json" else "text/csv")
-            .putExtra(Intent.EXTRA_TITLE, "ble-search-${id.take(8)}-$suffix.${if (json) "json" else "csv"}"))
+            .putExtra(Intent.EXTRA_TITLE, "lost-phone-finder-${id.take(8)}-$suffix.${if (json) "json" else "csv"}"))
     }
 }

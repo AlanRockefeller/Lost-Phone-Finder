@@ -1,4 +1,4 @@
-# BLE Search v0.1
+# Lost Phone Finder v0.1.4
 
 An offline Android instrument for finding BLE transmitters outdoors. Kotlin, Jetpack Compose, generated per-result audio, target tracking, baseline muting, local sessions, optional GPS and JSON/CSV export. No account, network permission, telemetry or backend.
 
@@ -17,18 +17,18 @@ python3 tools/verify-apk-runtime.py app/build/outputs/apk/debug/app-debug.apk --
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Open this directory in Android Studio, sync, select `app`, and run. Release builds use `.release-signing/release.properties` if present, or a properties file supplied with `-PreleaseSigningProperties=/private/path/release.properties`; without one, release APKs are unsigned. CI builds without a private signing key. First-time dependency downloads require internet **on the development machine**; the app itself operates offline. CI runs builds, both variants' JVM tests, runtime APK audits and lint; the workflow has not been dispatched from this workspace.
+Open this directory in Android Studio, sync, select `app`, and run. Both build variants use the same private signing configuration from `.release-signing/release.properties` if present, or a properties file supplied with `-PreleaseSigningProperties=/private/path/release.properties`. Without one, debug uses the standard development key and release is unsigned. CI builds without a private signing key. First-time dependency downloads require internet **on the development machine**; the app itself operates offline. CI runs builds, both variants' JVM tests, runtime APK audits and lint; the workflow has not been dispatched from this workspace.
 
-The local v0.1.0 release has a dedicated permanent signing key. Keep `.release-signing/` private and back up both its keystore and properties file securely; they are excluded from Git and release source archives. See [v0.1.0 release notes](docs/RELEASE_0.1.0.md) for verification, artifacts and installation instructions. Future release builds must reuse this certificate to update existing release installations. A release APK cannot update the debug installation because their certificates differ; export saved sessions before switching installations.
+The local v0.1.4 debug and release APKs both use the original field-test/debug certificate (SHA-256 `29235354f935b7dbd62093be213712dec8b426e914fa4ed1134ee3bfa6d4d886`). You can update between these variants without uninstalling or losing saved sessions. Both variants use the same package ID and increasing version codes. Debug enables debugging and synthetic simulation; release disables both. The v0.1.0–v0.1.3 release APKs used a different certificate, so an installation of one of those release APKs still requires a one-time reinstall to switch; export sessions first. The old release key is retained privately for compatibility builds. Keep `.release-signing/` and its backups private; never commit or upload any keystore or signing properties.
 
 See [verification status](docs/VERIFICATION.md) for exactly what was executed in the development environment, including its Gradle sandbox restriction. Do not equate a compiler check or unit test with physical radio testing.
 
-Build APKs through Gradle so runtime dependencies, Android resources, manifests and Java resources are resolved together. The earlier cache-scanning fallback packager is unsafe: it selected an empty ListenableFuture placeholder without Guava, causing a confirmed ProfileInstaller startup crash. Do not use `build/verification-tools/package-ble.py`. The APK audit above checks class definitions for every resolved runtime JAR and AAR, including embedded AAR JARs; it is intended for non-minified debug APKs. ProfileInstaller remains enabled with its normal transitive dependencies. To update the original field-test installation with the same debug certificate, add `-PfieldTestKeystore=build/offline-apk/debug.keystore` to the Gradle command on the machine holding that key. Otherwise Gradle uses its standard debug key.
+Build APKs through Gradle so runtime dependencies, Android resources, manifests and Java resources are resolved together. The earlier cache-scanning fallback packager is unsafe: it selected an empty ListenableFuture placeholder without Guava, causing a confirmed ProfileInstaller startup crash. Do not use `build/verification-tools/package-ble.py`. The APK audit above checks class definitions for every resolved runtime JAR and AAR, including embedded AAR JARs; it is intended for non-minified debug APKs. ProfileInstaller remains enabled with its normal transitive dependencies. To update the original field-test installation with the same debug certificate, add `-PfieldTestKeystore=build/offline-apk/debug.keystore` to the Gradle command on the machine holding that key. This override signs both variants with that certificate. Without any private configuration or override, Gradle uses its standard debug key and leaves release unsigned.
 
 ## Workflow
 
 1. Start Search, read the permission explanation and grant Nearby devices and precise location. Enable Bluetooth and system location services. GPS recording is optional and defaults off.
-2. Keep the screen on. The default dark field interface prevents display sleep during the explicit search. Use readiness checks to inspect battery settings and permissions.
+2. Search is configured to continue scanning and pinging with the screen off, including discovery of new addresses. Start while the app is visible, then lock the phone. The keep-display-awake setting remains optional. Check media volume and power settings. See [screen-off implementation and verification](docs/SCREEN_OFF.md); Android/OEM restrictions can still affect results.
 3. Each unmuted received result can sound a 30 ms chirp. Higher RSSI produces higher pitch. A new address gets a distinct two-note notification instead of its first chirp.
 4. Tap a transmitter to enter Target mode: only that address sounds. Read current/smoothed RSSI, extrema, average, result count, rate and age. Raw pitch continues to follow individual results. Return to Scan or stop directly from Target.
 5. To exclude search-party devices, gather them nearby and run Baseline (30 seconds by default). Addresses detected during the countdown become session-muted. Review each result, unmute false exclusions, or explicitly choose **Always mute**.
@@ -80,14 +80,15 @@ Small settings and persistent address sets use platform **SharedPreferences**, w
 | `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` | Requested together for Android's precise-location choice. Fine permission is required for location-related BLE scanning; also enables optional GPS logging. |
 | `POST_NOTIFICATIONS` (13+) | Visible search notification and Stop action. Denial does not prohibit the foreground service; Android may show it only in its active-apps UI. |
 | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`, `FOREGROUND_SERVICE_CONNECTED_DEVICE` | Explicit, user-started proximity search. Location type from API 29; connected-device type additionally activated from API 34. |
+| `WAKE_LOCK` | Keeps the CPU running for scan callbacks, audio and storage during the explicit active search; released on Stop or service teardown. Does not keep the display on. |
 
-No background location, internet, external-storage, microphone, boot receiver or wake-lock permission. The service is non-exported, uses `START_NOT_STICKY`, immediately promotes itself, and does not auto-start after reboot or process death. It stops scanner, GPS and audio on shutdown. Bluetooth disabling, missing permissions, start restrictions and scanner error codes are surfaced. Data committed before unexpected process termination remains exportable, with previously active sessions marked interrupted on next process start.
+No background location, internet, external-storage, microphone or boot receiver permission. The service is non-exported, uses `START_NOT_STICKY`, immediately promotes itself, and does not auto-start after reboot or process death. It stops scanner, GPS and audio and releases its CPU wake lock on shutdown. The lock uses a ten-minute timeout renewed every five minutes only during a user-started search; a cancelled service scope also releases it. Bluetooth disabling, missing permissions, start restrictions and scanner error codes are surfaced. Data committed before unexpected process termination remains exportable, with previously active sessions marked interrupted on next process start.
 
 Readiness shows Bluetooth, Nearby devices/fine location permissions, location services, battery optimization, Battery Saver, notifications, service and GPS configuration. Battery Saver is prominent. A button opens battery optimization settings; the app never claims exemption guarantees continuous scanning.
 
 ## BLE configuration and identity
 
-- `SCAN_MODE_LOW_LATENCY`, `CALLBACK_TYPE_ALL_MATCHES`, report delay 0; unfiltered broad scanning in both Scan and Target mode.
+- `SCAN_MODE_LOW_LATENCY`, `CALLBACK_TYPE_ALL_MATCHES`, report delay 0; broad scanning in both Scan and Target mode. Screen-off discovery uses inclusive OR filters: one concrete Battery Service UUID branch and an unconstrained branch. The unconstrained branch preserves discovery of arbitrary new advertisers; the concrete branch satisfies current AOSP's nonempty-filter classification. This is an Android compatibility workaround, not a promise for every OS/OEM implementation.
 - Aggressive matching / maximum hardware matches. Extended advertisements and all supported PHYs where the adapter supports them; legacy-only adapters use legacy scan configuration.
 - Android's active scan default; explicit `SCAN_TYPE_ACTIVE` on API 37+, guarded because the setter was introduced in 36.1.
 - Capture address, Android address type on API 35+, cached device name, local name, raw RSSI, wall-clock event/receipt times and monotonic controller timestamp. Capture TX powers, flags, service and solicitation UUIDs, manufacturer/service data, connectability, legacy flag, PHYs, SID, periodic interval, data status and callback type. Android's AD map is captured on API 33+.
@@ -99,6 +100,8 @@ Readiness shows Bluetooth, Nearby devices/fine location permissions, location se
 `PitchMapping.points` holds the requested tuning points from -100 dBm/250 Hz through -30 dBm/3200 Hz. Piecewise linear interpolation is continuous; settings remap the endpoints and clamp RSSI. Default chirps are 30 ms, adjustable from 20–50 ms. Unknown Android RSSI 127 is excluded from signal aggregates/normal chirps but its observation is logged.
 
 One audio worker holds one mono 48 kHz PCM `AudioTrack` in low-latency streaming mode and reuses a sample buffer. It feeds silence between chirps so a single sparse target result can play without waiting for other results to fill the streaming buffer. Short attack/release ramps soften clicks. New devices sound two ascending notes over 80 ms. There are separate chirp/discovery toggles, a master amplitude setting, a session-wide audio mute, and per-address mutes. Chirps use media audio, and the app's volume buttons control media volume. System audio routing/volume still apply.
+
+Optional **Loudspeaker mode** in Settings prefers the built-in speaker for this app's AudioTrack and enables full-scale PCM peaks on a confirmed speaker route (roughly twice the ordinary digital amplitude). It leaves the phone's media volume unchanged; adjust the app slider and media-volume buttons. Boosting is withheld on headphone/Bluetooth routes or when the speaker request is rejected. Turning the option off clears the track's preferred route. The setting is saved across restarts and can change during a search. It does not put the phone into a call/communication mode. Hardware loudness remains device-dependent.
 
 The sound queue holds at most 8 events and drops tones older than 200 ms; overload favors recent feedback, and discovery events can displace pending ordinary tones. Observations are logged independently. At ordinary advertisement rates each result can sound; very dense environments are intentionally not an unlimited audio backlog. Audio failure is reported while scanning/logging continue.
 
@@ -140,10 +143,28 @@ For a quick hardware-free check, use debug simulation and confirm discovery, raw
 
 ## Known limits
 
-Android can pause unfiltered scans when the display turns off and can throttle starts, results or background activity; OEM firmware adds variation. Keeping awake and disabling battery optimization improve conditions but do not guarantee coverage. The app intentionally does not restart scanning in a rapid loop. After scanner throttling, wait at least 30 seconds and retry manually.
+Android can pause unfiltered scans when the display turns off and can throttle starts, results or background activity; OEM firmware adds variation. The inclusive filter configuration and CPU wake lock support screen-off discovery and pings but cannot override Doze or all OEM restrictions. Active searches use more battery, even with the display off. Press Stop when finished. The app intentionally does not restart scanning in a rapid loop or when screen state/target selection changes. After scanner throttling, wait at least 30 seconds and retry manually.
 
 Names and company IDs are advertised claims, not ownership or verified manufacturer identity. Manufacturer names cover a small table. No auto-clustering, encrypted-identifier resolution, AoA/AoD, maps, network lookups or vendor finder-network integration. Only the most recent 50 results per target are selectable in the detail UI; **all committed results** are exportable. Radio interference, body shielding, reflections, antenna orientation and phone model strongly affect RSSI. RSSI may remain stale during silence; age is displayed prominently.
 
 Abrupt process death, power loss or storage exhaustion may prevent queued callbacks from being committed. There is no lossless over-the-air capture guarantee. Sessions currently have no in-app deletion UI; New session archives instead of destroying data. Android's Clear storage/uninstall removes local data. Export first if needed.
 
 Implementation references: [Android BLE scanner and screen-off behavior](https://developer.android.com/reference/android/bluetooth/le/BluetoothLeScanner), [Bluetooth permission requirements](https://developer.android.com/develop/connectivity/bluetooth/bt-permissions), [foreground service types](https://developer.android.com/develop/background-work/services/fgs/service-types), [active scan setter availability](https://developer.android.com/reference/android/bluetooth/le/ScanSettings.Builder#setScanType(int)), and [Android 17 behavior changes](https://developer.android.com/about/versions/17/behavior-changes-17).
+
+## Recent-results interface (v0.1.2)
+
+Search opens with an ID/address, RSSI (dBm), and received-age table, ordered by most recent receipt. Tap a row to track that address. Devices keeps full statistics and offers optional packet-profile buckets. Session tools and readiness are expandable. The top-right speaker button toggles global audio mute; loudspeaker mode adds a second wave.
+
+Settings separates low/high alert frequencies (Hz) from the weak/strong signal levels (dBm) that reach those frequencies. A curve previews the existing pitch mapping. Sensitivity levels do not filter scan results or logs.
+
+Packet profiles compare manufacturer IDs and payload lengths, service UUIDs and service-data lengths, solicitation UUIDs, and advertising structure types/lengths. They ignore the address, RSSI, timestamps and changing payload bytes. These are format buckets, potentially shared by many physical devices, not verified identities. Advertisements without manufacturer/service clues remain separate. Tracking and muting continue to use exact addresses. Buckets reflect each address's latest packet and can change when its advertisement changes; no grouping is persisted or written into exported identity fields.
+
+To analyze rotating addresses, open Sessions and export the overnight session as JSON. It includes every stored observation and raw advertisement, so timing, payload changes and overlap can be compared rather than relying on the latest-packet view.
+
+## Development workflow
+
+All coding happens on `test`. Push changes to `test` and open a pull request into `main` for CodeRabbit review. Alan merges through GitHub; coding agents must not merge or push application changes directly to `main`. Keep review batches at no more than 100 changed files. Source, tests, build configuration, the Gradle wrapper, Room schema, verification scripts and documentation belong in Git. Build output, caches, APKs, local settings, logs and signing keys do not.
+
+## License
+
+Copyright (c) 2026 Alan Rockefeller. This project is licensed under the GNU General Public License version 3 (SPDX: GPL-3.0-only). See [LICENSE](LICENSE). Third-party dependencies retain their respective licenses.

@@ -25,6 +25,7 @@ Phone model, Android version, audio route, exact test duration and exported samp
 4. Select a target. Only it should sound; other devices must still log. Check large readings, EMA responsiveness, strongest/weakest/mean, result rate, stale age and raw detail. Turn off the advertiser: rate should decay to zero after five seconds.
 5. Reset target statistics. Confirm the display waits for new results and target/session export still includes earlier results. Check recent-result selection and returning to live detail.
 6. Test the built-in speaker, wired audio if present and Bluetooth headphones. Listen for latency, clipping and queue buildup at high advertisement density. Android audio routing is device-dependent. Verify phone calls/other audio interruptions do not crash the service.
+7. In v0.1.1, enable Loudspeaker mode in Settings during an active search. Check that chirps prefer the built-in speaker and become stronger at the same media/app volume, including with headphones connected. Verify app/system volume and global/target mute still work, then disable the mode and confirm normal routing returns. Lock the screen and repeat. Restart the app to check that the setting persists. Record any phone that rejects or ignores the preferred route; the app must not boost an unconfirmed headphone route.
 
 ## Baseline and persistence
 
@@ -38,7 +39,7 @@ Phone model, Android version, audio route, exact test duration and exported samp
 
 1. Walk for at least 20 minutes with the app visible and screen on. Compare counts with the known advertiser cadence while remembering Android does not report every transmitted packet.
 2. Check that the screen stays awake only during the active session, and resumes normal sleep behavior after Stop.
-3. Turn off keep-awake and lock the phone. Expect broad unfiltered detection to pause or change. Unlock and verify state and the notification; document model-specific behavior. The app does not promise screen-off coverage, including Target mode in v0.1.
+3. In v0.1.1, lock the phone during Scan mode and confirm pings continue for at least ten minutes. Introduce a brand-new advertiser after locking and confirm its discovery tone, then unlock and verify its address/results were recorded. Repeat while tracking: only the selected target sounds, but other/new devices still log. Repeat with keep-display-awake disabled, a speaker/headphone route, and Battery Saver on/off. After Stop, confirm audio stops and the CPU wake lock is released; repeat Bluetooth-off and failed-start cleanup. Document phone/OS, audio route, counts and battery use. Doze/OEM restrictions can still interrupt results; this session has not independently validated the new behavior on a phone.
 4. Switch to another app, rotate, return, and stop from the notification. Ensure there are no duplicate scans, lost live state on rotation or leaked audio/GPS after stopping.
 5. Turn Bluetooth off while searching. Verify the service stops with an error and the session remains exportable. Restore Bluetooth and restart manually.
 6. Toggle Battery Saver and inspect the prominent warning. Open optimization settings and return. Neither setting should be described as a guarantee of continuous detection.

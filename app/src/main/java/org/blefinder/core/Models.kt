@@ -12,6 +12,7 @@ data class Settings(
     val pitchMin: Int = 250, val pitchMax: Int = 3200, val chirpMs: Int = 30,
     val smoothing: Double = 0.25, val baselineSeconds: Int = 30,
     val gps: Boolean = false, val keepAwake: Boolean = true,
+    val loudspeaker: Boolean = false,
 ) {
     fun validated() = copy(volume = volume.coerceIn(0f, 1f), rssiMin = rssiMin.coerceIn(-127, -21),
         rssiMax = rssiMax.coerceIn(rssiMin.coerceIn(-127, -21) + 1, 0),
@@ -99,7 +100,7 @@ enum class SortOrder(val label: String) {
 }
 fun visibleDevices(devices: Collection<DeviceRecord>, sort: SortOrder, hideMuted: Boolean, mutes: MuteRules): List<DeviceRecord> {
     val comparator = when (sort) {
-        SortOrder.RECENT -> compareByDescending<DeviceRecord> { it.stats.lastSeen }
+        SortOrder.RECENT -> compareByDescending<DeviceRecord> { it.latest.receivedElapsedMillis }
         SortOrder.CURRENT -> compareByDescending { it.stats.current ?: Int.MIN_VALUE }
         SortOrder.BEST -> compareByDescending { it.stats.strongest ?: Int.MIN_VALUE }
         SortOrder.FIRST -> compareBy { it.stats.firstSeen }

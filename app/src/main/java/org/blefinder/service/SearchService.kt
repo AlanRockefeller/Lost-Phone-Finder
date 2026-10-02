@@ -14,6 +14,7 @@ import org.blefinder.ble.*
 class SearchService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repo get() = (application as SearchApplication).repository
+    private val wakeLock by lazy { SearchWakeLock(this, scope) }
     private var source: BleSource? = null
     private var audio: ChirpEngine? = null
     private var gps: LocationLogger? = null
@@ -29,7 +30,7 @@ class SearchService : Service() {
     }
     override fun onCreate() {
         super.onCreate()
-        getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL, "Active BLE search", NotificationManager.IMPORTANCE_LOW))
+        getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL, "Active phone search", NotificationManager.IMPORTANCE_LOW))
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(bluetoothReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED), RECEIVER_EXPORTED)
         else registerReceiver(bluetoothReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
         repo.fatalError = { Handler(mainLooper).post { end() } }
@@ -50,11 +51,13 @@ class SearchService : Service() {
                 (if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0) else 0
             if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification(0), type)
             else startForeground(NOTIFICATION, notification(0))
+            wakeLock.start()
             scope.launch {
                 try {
                     repo.start(simulated)
                     if (stopping) return@launch
-                    audio = ChirpEngine { repo.reportError(it) }
+                    audio = ChirpEngine(this@SearchService) { repo.reportError(it) }
+                    audio?.configure(repo.state.value.settings)
                     repo.sound = { observation, new, settings -> audio?.offer(observation, new, settings) }
                     if (repo.state.value.settings.gps && !simulated) {
                         gps = LocationLogger(this@SearchService, repo::location).also { it.start() }
@@ -67,6 +70,9 @@ class SearchService : Service() {
                         repo.state.map { Triple(it.audioMuted, it.target, it.mutes) }.distinctUntilChanged().collect {
                             audio?.silence(true); audio?.silence(it.first)
                         }
+                    }
+                    scope.launch {
+                        repo.state.map { it.settings }.distinctUntilChanged().collect { audio?.configure(it) }
                     }
                     source!!.start()
                     scope.launch {
@@ -87,18 +93,20 @@ class SearchService : Service() {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val stop = PendingIntent.getService(this, 1, Intent(this, SearchService::class.java).setAction(STOP), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         return Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_search)
-            .setContentTitle(if (simulated) "BLE Search • SIMULATION" else "BLE Search active")
-            .setContentText("$count addresses seen • Keep screen on for broad scanning")
+            .setContentTitle(getString(if (simulated) R.string.search_simulation_title else R.string.search_active_title, getString(R.string.app_name)))
+            .setContentText("$count addresses seen • Screen-off search active • Stop when finished")
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE)
             .addAction(Notification.Action.Builder(null, "Stop search", stop).build()).build()
     }
     private fun end() {
         if (stopping) return
         stopping = true
+        wakeLock.stop()
         source?.stop(); source = null; gps?.stop(); gps = null; audio?.close(); audio = null; repo.sound = null
         scope.launch { try { repo.stop() } finally { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() } }
     }
     override fun onDestroy() {
+        wakeLock.stop()
         source?.stop(); gps?.stop(); audio?.close(); repo.sound = null; repo.fatalError = null
         unregisterReceiver(bluetoothReceiver)
         scope.cancel()

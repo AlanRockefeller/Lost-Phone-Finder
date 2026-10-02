@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.res.stringResource
+import org.blefinder.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -57,7 +59,10 @@ fun SearchApp(repo: SearchRepository, status: String?, dismissStatus: () -> Unit
             }
         }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
-                Text("BLE Search", fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text(stringResource(R.string.app_name), fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 8.dp))
+                AudioIndicator(state.audioMuted, state.settings.loudspeaker, repo::audioMute)
+                }
                 if (state.simulated && state.sessionId != null) Banner("SIMULATION • Synthetic observations", Color(0xFFFFD180))
                 if (status != null) { Text(status, Modifier.padding(12.dp)); TextButton(onClick = dismissStatus) { Text("Dismiss") } }
                 state.error?.let { Banner(it, MaterialTheme.colorScheme.error) }
@@ -92,11 +97,11 @@ fun SearchApp(repo: SearchRepository, status: String?, dismissStatus: () -> Unit
         }
         if (explain) AlertDialog(onDismissRequest = { explain = false }, title = { Text("Start ${if (simulation) "simulated " else ""}search") },
             text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("Nearby devices lets BLE Search detect advertisements and read device names. Precise location is needed because BLE signal strength is used to infer proximity. GPS coordinates are recorded only when GPS logging is enabled.")
+                Text(stringResource(R.string.nearby_permission_explanation, stringResource(R.string.app_name)))
                 Spacer(Modifier.height(12.dp))
                 Text("Notifications show the active search and provide a Stop action. Notification denial does not prevent searching. No background location permission is requested.")
                 Spacer(Modifier.height(12.dp))
-                Text("Keep the screen on: Android can pause broad, unfiltered scans when the screen is off. Battery settings cannot guarantee continuous detection. All search data stays local.")
+                Text("Search is configured to keep discovering devices and pinging while the screen is off. Active searches keep the CPU awake and use more battery until you press Stop. Phone power settings can still restrict results. All search data stays local.")
             } }, confirmButton = { Button(onClick = { explain = false; start(simulation) }) { Text("Continue") } },
             dismissButton = { TextButton(onClick = { explain = false }) { Text("Cancel") } })
         if (restart) AlertDialog(onDismissRequest = { restart = false }, title = { Text("Start a fresh session?") },
@@ -117,10 +122,12 @@ private fun DeviceSearchScreen(state: SearchState, repo: SearchRepository, searc
     var sort by rememberSaveable { mutableStateOf(SortOrder.RECENT) }
     var hide by rememberSaveable { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
-    var readiness by rememberSaveable { mutableStateOf(true) }
+    var readiness by rememberSaveable { mutableStateOf(false) }
+    var tools by rememberSaveable { mutableStateOf(false) }
+    var grouped by rememberSaveable { mutableStateOf(false) }
     var review by rememberSaveable { mutableStateOf(true) }
     val context = LocalContext.current
-    val devices = visibleDevices(state.devices, sort, hide, state.mutes)
+    val devices = visibleDevices(state.devices, if (search) SortOrder.RECENT else sort, hide, state.mutes)
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             BigButton(if (state.active) "STOP SEARCH" else "START SEARCH", state.ready, toggleSearch)
@@ -141,10 +148,11 @@ private fun DeviceSearchScreen(state: SearchState, repo: SearchRepository, searc
                 }
                 OutlinedButton(onClick = { openSettings(context, AndroidSettings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS) }) { Text("Battery optimization settings") }
                 TextButton(onClick = { openSettings(context, AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")) }) { Text("App permissions / notifications") }
-                Text("Broad BLE detection is more reliable with the display on. Keep awake is ${if (state.settings.keepAwake) "enabled" else "disabled"}. Android and phone firmware can still limit scan results.", style = MaterialTheme.typography.bodySmall)
+                Text("Screen-off discovery and pings are enabled; keep display awake is ${if (state.settings.keepAwake) "enabled" else "disabled"}. Phone power settings can still limit results.", style = MaterialTheme.typography.bodySmall)
             }
         }
-        item {
+        item { TextButton(onClick = { tools = !tools }) { Text("${if (tools) "▾" else "▸"} Session tools / baseline") } }
+        if (tools) item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = repo::audioMute, modifier = Modifier.weight(1f)) { Text(if (state.audioMuted) "Unmute audio" else "Mute all audio") }
                 OutlinedButton(onClick = restart, modifier = Modifier.weight(1f), enabled = state.ready) { Text("New session") }
@@ -172,17 +180,35 @@ private fun DeviceSearchScreen(state: SearchState, repo: SearchRepository, searc
             }
         }
         item {
-            Text("Advertisements detected", style = MaterialTheme.typography.headlineSmall)
-            Box {
+            Text(if (search) "Recent results" else "Device details", style = MaterialTheme.typography.headlineSmall)
+            if (!search) Box {
                 OutlinedButton(onClick = { sortMenu = true }) { Text("Sort: ${sort.label}") }
                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                     SortOrder.entries.forEach { option -> DropdownMenuItem(text = { Text(option.label) }, onClick = { sort = option; sortMenu = false }) }
                 }
             }
             Toggle("Hide muted devices", hide) { hide = it }
+            if (!search) {
+                Toggle("Group by packet profile", grouped) { grouped = it }
+                if (grouped) Text("Buckets share manufacturer / service data format. They may contain multiple physical devices. Addresses remain separate for tracking and muting.", style = MaterialTheme.typography.bodySmall)
+            }
+            if (search) Row(Modifier.fillMaxWidth()) {
+                Text("ID / address", Modifier.weight(1f))
+                Text("RSSI", Modifier.width(64.dp))
+                Text("Seen ago", Modifier.width(72.dp))
+            }
         }
         if (devices.isEmpty()) item { Text(if (state.active) "Listening for BLE advertisements… A phone must be advertising to appear." else "No scan results yet. Start a search outdoors or use debug simulation.") }
-        items(devices, key = { it.address }) { device -> DeviceCard(device, state, repo) }
+        if (!search && grouped) {
+            packetBuckets(devices).forEach { bucket ->
+                item(key = "profile-${bucket.key}") {
+                    Text("${bucket.label} • ${bucket.devices.size} addresses", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+                items(bucket.devices, key = { it.address }) { device -> DeviceCard(device, state, repo) }
+            }
+        } else items(devices, key = { it.address }) { device ->
+            if (search) RecentResultRow(device, state, repo) else DeviceCard(device, state, repo)
+        }
         item { Text("Addresses can rotate. One address does not prove one physical device. RSSI indicates relative signal strength, not distance.", style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(16.dp)) }
     }
 }
@@ -227,5 +253,23 @@ private fun DeviceSearchScreen(state: SearchState, repo: SearchRepository, searc
 fun openSettings(context: android.content.Context, action: String, data: Uri? = null) {
     runCatching { context.startActivity(Intent(action, data)) }.onFailure {
         android.widget.Toast.makeText(context, "This settings screen is unavailable on this phone.", android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
+@Composable private fun RecentResultRow(device: DeviceRecord, state: SearchState, repo: SearchRepository) {
+    val seconds = (state.nowElapsed - device.latest.receivedElapsedMillis).coerceAtLeast(0) / 1000
+    val age = when { seconds < 60 -> "${seconds}s"; seconds < 3600 -> "${seconds / 60}m"; else -> "${seconds / 3600}h" }
+    Column {
+        Row(Modifier.fillMaxWidth().clickable { repo.selectTarget(device.address) }.padding(vertical = 12.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(device.address, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                val detail = listOfNotNull(device.displayName, "Muted".takeIf { state.mutes.isMuted(device.address) }).joinToString(" • ")
+                if (detail.isNotEmpty()) Text(detail, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+            }
+            Text(signal(device.stats.current), Modifier.width(64.dp), color = MaterialTheme.colorScheme.primary)
+            Text(age, Modifier.width(72.dp))
+        }
+        HorizontalDivider()
     }
 }
