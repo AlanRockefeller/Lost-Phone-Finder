@@ -20,10 +20,11 @@ class SearchService : Service() {
     private var gps: LocationLogger? = null
     private var starting = false
     private var stopping = false
+    private var awaitingFinalization = false
     private var simulated = false
     private val bluetoothReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (!simulated && intent?.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) == BluetoothAdapter.STATE_OFF) {
+            if (!simulated && !stopping && intent?.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) in listOf(BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF)) {
                 repo.reportError("Bluetooth switched off. Search stopped; turn it on and start again."); end()
             }
         }
@@ -38,19 +39,25 @@ class SearchService : Service() {
     @android.annotation.SuppressLint("MissingPermission") // A denied notification permission may suppress the drawer entry; FGS remains visible in Android active apps.
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) { end(); return START_NOT_STICKY }
-        if (starting || source != null || stopping) return START_NOT_STICKY
-        starting = true
-        simulated = intent?.getBooleanExtra("simulate", false) == true && DemoFactory.available
+        if (!starting && source == null && !stopping) {
+            simulated = intent?.getBooleanExtra("simulate", false) == true && DemoFactory.available
+        }
         try {
             check(Readiness.scanPermissions(this)) { "Grant Nearby devices and precise location permissions before starting" }
-            if (!simulated) {
-                check(Readiness.bluetooth(this)) { "Bluetooth is disabled or this device has no BLE radio" }
-                check(Readiness.location(this)) { "Enable location services for proximity scanning" }
-            }
             val type = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
                 (if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0) else 0
-            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification(0), type)
-            else startForeground(NOTIFICATION, notification(0))
+            val foregroundNotification = notification(repo.state.value.devices.size)
+            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, foregroundNotification, type)
+            else startForeground(NOTIFICATION, foregroundNotification)
+            // Every foreground start request is promoted, including duplicates and shutdown races.
+            if (stopping) {
+                if (!awaitingFinalization) stopForegroundAndSelf()
+                return START_NOT_STICKY
+            }
+            if (starting || source != null) return START_NOT_STICKY
+            starting = true
+            // Promotion must precede radio checks: Bluetooth can switch off after the activity preflight.
+            Readiness.startIssue(this, simulated)?.let { repo.reportError(it); end(awaitRepository = false); return START_NOT_STICKY }
             wakeLock.start()
             scope.launch {
                 try {
@@ -87,7 +94,10 @@ class SearchService : Service() {
                 } catch (e: Exception) { repo.reportError("Unable to start search: ${e.message}"); end() }
                 finally { starting = false }
             }
-        } catch (e: Exception) { repo.reportError("Unable to start foreground search: ${e.message}"); end() }
+        } catch (e: Exception) {
+            repo.reportError("Unable to start foreground search: ${e.message}")
+            if (stopping) stopForegroundAndSelf() else end(awaitRepository = false)
+        }
         return START_NOT_STICKY
     }
     private fun notification(count: Int): Notification {
@@ -99,16 +109,30 @@ class SearchService : Service() {
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE)
             .addAction(Notification.Action.Builder(null, "Stop search", stop).build()).build()
     }
-    private fun end() {
+    private fun end(awaitRepository: Boolean = true) {
         if (stopping) return
         stopping = true
+        awaitingFinalization = awaitRepository
         wakeLock.stop()
-        source?.stop(); source = null; gps?.stop(); gps = null; audio?.close(); audio = null; repo.sound = null
-        scope.launch { try { repo.stop() } finally { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() } }
+        runCatching { source?.stop() }; source = null; runCatching { gps?.stop() }; gps = null; audio?.close(); audio = null; repo.sound = null
+        // Rejected starts must not wait for storage before ending their foreground request.
+        if (!awaitRepository) stopForegroundAndSelf()
+        // Application scope also completes finalization if a later start fails promotion.
+        (application as SearchApplication).scope.launch {
+            try { runCatching { repo.stop() } }
+            finally {
+                awaitingFinalization = false
+                stopForegroundAndSelf()
+            }
+        }
+    }
+    private fun stopForegroundAndSelf() {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
     override fun onDestroy() {
         wakeLock.stop()
-        source?.stop(); gps?.stop(); audio?.close(); repo.sound = null; repo.fatalError = null
+        runCatching { source?.stop() }; runCatching { gps?.stop() }; audio?.close(); repo.sound = null; repo.fatalError = null
         unregisterReceiver(bluetoothReceiver)
         scope.cancel()
         if (!stopping) (application as SearchApplication).scope.launch { runCatching { repo.stop() } }

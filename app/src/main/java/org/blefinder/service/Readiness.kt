@@ -25,6 +25,12 @@ object Readiness {
         return if (Build.VERSION.SDK_INT >= 28) manager.isLocationEnabled
         else manager.isProviderEnabled(LocationManager.GPS_PROVIDER) || manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
     }
+    fun startIssue(context: Context, simulated: Boolean): String? = when {
+        !scanPermissions(context) -> "Grant Nearby devices and precise location permissions before starting."
+        !simulated && !bluetooth(context) -> "Bluetooth is off or unavailable. Turn on Bluetooth to receive BLE advertisements, then start again."
+        !simulated && !location(context) -> "Enable location services for BLE proximity scanning, then start again."
+        else -> null
+    }
     fun checks(context: Context, active: Boolean, gps: Boolean): List<Pair<String, Boolean>> {
         val power = context.getSystemService(PowerManager::class.java)
         return listOf("Bluetooth enabled" to bluetooth(context),

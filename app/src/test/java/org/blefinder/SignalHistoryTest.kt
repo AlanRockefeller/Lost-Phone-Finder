@@ -29,6 +29,8 @@ class SignalHistoryTest {
         val preferences = Preferences(context)
         preferences.settings(Settings()); preferences.mutes(emptySet())
         repo = SearchRepository(db, preferences, scope, storageUsage = { StorageUsage(0, Long.MAX_VALUE) }, elapsedNow = now::get)
+        repo.recent("unused")
+        assertFalse(repo.state.value.hasSearched)
         repo.start(true)
     }
     @After fun close() { scope.cancel(); db.close() }
@@ -53,10 +55,10 @@ class SignalHistoryTest {
     }
 
     @Test fun lateAndUnavailableSignalsAreStillLoggedAndFreshSessionsClearGraphs() = runBlocking {
-        now.set(100_000)
+        now.set(400_000)
         repo.receive(observation(-70, 1_000, "A"))
-        repo.receive(observation(127, 100_000, "B"))
-        repo.receive(observation(-50, 100_000, "C"))
+        repo.receive(observation(127, 400_000, "B"))
+        repo.receive(observation(-50, 400_000, "C"))
         publish()
         val id = repo.state.value.sessionId!!
         assertEquals(setOf("C"), repo.state.value.signalHistory.keys)
@@ -75,4 +77,41 @@ class SignalHistoryTest {
         assertEquals("Steady", trend(rising.map { it.copy(smoothed = -70.0) }, 60_000))
         assertEquals("Steady", trend(rising, 71_000))
     }
+    @Test fun stoppedStatusRequiresSearchAndSpeakerCyclesPreserveOtherSettings() = runBlocking {
+        assertTrue(repo.state.value.hasSearched)
+        repo.stop()
+        assertFalse(repo.state.value.active)
+        assertTrue(repo.state.value.hasSearched)
+        val settings = Settings(volume = .4f, discoverySound = org.blefinder.core.DiscoverySound.TUGBOAT)
+        repo.updateSettings(settings); publish()
+        repo.cycleSoundMode(); publish()
+        assertTrue(repo.state.value.settings.loudspeaker)
+        assertFalse(repo.state.value.audioMuted)
+        repo.cycleSoundMode(); publish()
+        assertTrue(repo.state.value.audioMuted)
+        repo.cycleSoundMode(); publish()
+        assertFalse(repo.state.value.audioMuted)
+        assertEquals(settings, repo.state.value.settings)
+    }
+
+    @Test fun publishedFeaturedAddressIsStableDespiteSortChangesAndResetsForMutesAndSessions() = runBlocking {
+        repo.receive(observation(-60, 60_000, "A")); repo.receive(observation(-61, 60_000, "B")); publish()
+        assertEquals("A", repo.state.value.featuredAddress)
+        now.set(61_000)
+        repo.receive(observation(-60, 61_000, "A")); repo.receive(observation(-54, 61_000, "B")); publish()
+        assertEquals("A", repo.state.value.featuredAddress)
+        assertEquals("B", org.blefinder.core.visibleDevices(repo.state.value.devices, org.blefinder.core.SortOrder.CURRENT, true, repo.state.value.mutes).first().address)
+        now.set(62_999)
+        repo.receive(observation(-60, 62_999, "A")); repo.receive(observation(-54, 62_999, "B")); publish()
+        assertEquals("A", repo.state.value.featuredAddress)
+        now.set(63_000)
+        repo.receive(observation(-54, 63_000, "B")); publish()
+        assertEquals("B", repo.state.value.featuredAddress)
+        repo.setMute("B"); publish()
+        assertEquals("A", repo.state.value.featuredAddress)
+        repo.restartSession(); publish()
+        assertNull(repo.state.value.featuredAddress)
+        assertTrue(repo.state.value.signalHistory.isEmpty())
+    }
+
 }

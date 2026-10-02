@@ -124,23 +124,22 @@ fun trend(samples: List<RssiSample>, now: Long): String {
             val y = size.height * (i + 1) / 4f
             drawLine(FinderColors.neutral800, Offset(0f, y), Offset(size.width, y), 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx())))
         }
-        val points = samples.filter { it.elapsedMillis in (now - 60_000)..now }.sortedBy { it.elapsedMillis }
-        if (points.isEmpty()) return@Canvas
-        fun x(p: RssiSample) = size.width * ((p.elapsedMillis - (now - 60_000)) / 60_000f).coerceIn(0f, 1f)
-        fun y(p: RssiSample) = size.height * (1f - ((p.rssi - min).toFloat() / (max - min).coerceAtLeast(1)).coerceIn(0f, 1f))
-        // Gaps stay visible; the line never extends to now after a device falls silent.
-        val segments = mutableListOf<MutableList<RssiSample>>()
-        points.forEach { p ->
-            if (segments.isEmpty() || p.elapsedMillis - segments.last().last().elapsedMillis > 5_000) segments.add(mutableListOf())
-            segments.last().add(p)
-        }
+        val segments = signalSegments(samples, now)
+        fun x(p: RssiSample) = size.width * signalGraphPosition(p, now, min, max).x
+        fun y(p: RssiSample) = size.height * signalGraphPosition(p, now, min, max).y
         segments.forEach { segment ->
             val line = Path().apply { segment.forEachIndexed { i, p -> if (i == 0) moveTo(x(p), y(p)) else lineTo(x(p), y(p)) } }
             val area = Path().apply { addPath(line); lineTo(x(segment.last()), size.height); lineTo(x(segment.first()), size.height); close() }
             drawPath(area, FinderColors.accent900)
             val color = if (muted) FinderColors.neutral700 else FinderColors.accent
-            drawPath(line, color, style = Stroke((if (grid) 2.5.dp else 2.dp).toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+            drawPath(line, color, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
             if (segment.size == 1) drawCircle(color, 2.dp.toPx(), Offset(x(segment.first()), y(segment.first())))
         }
     }
 }
+
+/** Normalized coordinates use fixed time and configured RSSI bounds, irrespective of the data. */
+fun signalGraphPosition(sample: RssiSample, now: Long, min: Int, max: Int): Offset = Offset(
+    ((sample.elapsedMillis - (now - SIGNAL_HISTORY_MS)) / SIGNAL_HISTORY_MS.toFloat()).coerceIn(0f, 1f),
+    1f - ((sample.rssi - min).toFloat() / (max - min).coerceAtLeast(1)).coerceIn(0f, 1f),
+)

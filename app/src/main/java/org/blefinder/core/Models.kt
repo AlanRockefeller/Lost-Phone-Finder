@@ -6,13 +6,20 @@ import kotlinx.serialization.json.Json
 val SearchJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 @Serializable
+enum class DiscoverySound(val label: String, val asset: String?) {
+    TWO_NOTE("Two-note chime", null),
+    TUGBOAT("Tugboat horn", "sounds/tugboat.pcm"),
+    OROPENDOLA("Oropendola calls", "sounds/oropendola.pcm")
+}
+
+@Serializable
 data class Settings(
     val chirps: Boolean = true, val discoveries: Boolean = true,
     val volume: Float = 0.65f, val rssiMin: Int = -100, val rssiMax: Int = -30,
     val pitchMin: Int = 250, val pitchMax: Int = 3200, val chirpMs: Int = 30,
     val smoothing: Double = 0.25, val baselineSeconds: Int = 30,
     val gps: Boolean = false, val keepAwake: Boolean = true,
-    val loudspeaker: Boolean = false,
+    val loudspeaker: Boolean = false, val discoverySound: DiscoverySound = DiscoverySound.TWO_NOTE,
 ) {
     fun validated() = copy(volume = volume.coerceIn(0f, 1f), rssiMin = rssiMin.coerceIn(-127, -21),
         rssiMax = rssiMax.coerceIn(rssiMin.coerceIn(-127, -21) + 1, 0),

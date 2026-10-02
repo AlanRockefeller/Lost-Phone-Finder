@@ -1,0 +1,18 @@
+Offline notification recordings, licensed separately from the GPL application.
+Both recordings are licensed CC BY 4.0:
+https://creativecommons.org/licenses/by/4.0/
+
+Tugboat horn (steam whistle of the tugboat Nixe)
+Work With Sounds / Konrad Gutkowski; recorded with Jonathan Nicolai, 27 September 2014.
+Source: https://commons.wikimedia.org/wiki/File:WWS_Steamwhistle.ogg
+Original: https://upload.wikimedia.org/wikipedia/commons/b/b4/WWS_Steamwhistle.ogg
+Changes: excerpt 1.45–3.25 seconds, mono 48 kHz signed 16-bit little-endian PCM;
+40 Hz high-pass, 20 ms fade-in, 40 ms fade-out, peak normalization to 90%, and additional 10 ms cosine endpoint fades after resampling.
+
+Montezuma oropendola song and calls
+Recording by Richard Ranft, Heredia Province, Costa Rica, 2 March 1985.
+Copyright The British Library Board. Shelfmark W1CDR0001419 BD20.
+Source: https://commons.wikimedia.org/wiki/File:Montezuma_Oropendola_(Psarocolius_montezuma)_(W_PSAROCOLIUS_MONTEZUMA_R1_C4).ogg
+Original: https://upload.wikimedia.org/wikipedia/commons/f/f7/Montezuma_Oropendola_%28Psarocolius_montezuma%29_%28W_PSAROCOLIUS_MONTEZUMA_R1_C4%29.ogg
+Changes: excerpt 1.2–3.3 seconds, mono 48 kHz signed 16-bit little-endian PCM;
+300 Hz high-pass, 20 ms fade-in, 40 ms fade-out, peak normalization to 90%, and additional 10 ms cosine endpoint fades after resampling.

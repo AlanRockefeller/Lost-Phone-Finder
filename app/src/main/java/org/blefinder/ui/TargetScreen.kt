@@ -42,9 +42,9 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
             IconButton(onClick = { repo.selectTarget(null) }) { FinderIcon(R.drawable.ic_arrow_left, description = "Back to previous tab") }
             Column(Modifier.weight(1f)) {
                 Text(device.displayName ?: "Unnamed transmitter", fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                SelectionContainer { Text(device.address, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = FinderColors.neutral400) }
+                SelectionContainer { Text(device.address, fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp, color = FinderColors.neutral400) }
             }
-            AudioIndicator(state.audioMuted, state.settings.loudspeaker, repo::audioMute)
+            AudioIndicator(state.audioMuted, state.settings.loudspeaker, repo::cycleSoundMode)
         }
         SearchBanners(state, status, dismissStatus)
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -68,7 +68,7 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
             item {
                 FinderCard(Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 14.dp)) {
-                        listOf("Best" to signal(stats.strongest), "Average" to number(stats.mean), "Results" to stats.count.toString(), "Rate" to "${number(stats.rate(state.nowElapsed))}/s").forEach { (label, value) ->
+                        listOf("Best" to signal(stats.strongest), "Average" to number(stats.mean), "Results" to stats.count.toString(), "Rate" to rateText(stats, state.nowElapsed)).forEach { (label, value) ->
                             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(value, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(label, fontSize = 10.sp, color = FinderColors.neutral500)
@@ -120,7 +120,7 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
                                 Text(ad.hex.ifEmpty { "(empty payload)" }, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                             }
                             Text("Complete stored observation (JSON):", Modifier.padding(top = 12.dp))
-                            Text(SearchJson.encodeToString(observation), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                            Text(SearchJson.encodeToString(observation), fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 12.sp)
                         }
                     }
                     FadingDivider()
@@ -149,7 +149,7 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
 @Composable private fun DecodedObservation(o: Observation) {
     val ad = o.advertisement; val m = o.metadata
     SelectionContainer { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Address: ${o.address} • ${o.addressType} (Android type ${m.androidAddressType ?: "unavailable"})")
+        Text("Address: ${o.address} • ${o.addressType} (Android type ${m.androidAddressType ?: "unavailable"})", fontFamily = FontFamily.Monospace, letterSpacing = 0.sp)
         Text("Android name: ${o.deviceName ?: "not supplied"}\nAdvertised local name: ${ad.localName ?: "not supplied"}")
         Text("RSSI: ${o.rssi} dBm\nResult time: ${timeText(o.timestamp)}\nReceived: ${timeText(o.receivedAt)}\nAndroid monotonic timestamp: ${m.timestampNanos} ns")
         Text("TX power: AD ${ad.txPower ?: "unavailable"} / scan ${m.txPower ?: "unavailable"} dBm")
