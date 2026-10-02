@@ -121,6 +121,27 @@ class StorageTest {
             assertEquals(3L, db.dao().count(id)); assertTrue(repo.state.value.mutes.session.isEmpty())
         } finally { scope.cancel() }
     }
+    @Test fun headerSoundModeChangesAreIncludedInSessionExports() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        Preferences(context).settings(Settings())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repo = SearchRepository(db, Preferences(context), scope)
+        try {
+            repo.start(false)
+            val id = repo.state.value.sessionId!!
+            repeat(3) { repo.cycleSoundMode() }
+            val exporter = SessionExporter(db)
+            val snapshot = repo.exportSnapshot(id, null)
+            val json = StringWriter().also { exporter.write(snapshot, true, it) }.toString()
+            val events = Json.parseToJsonElement(json).jsonObject["events"]!!.jsonArray
+                .filter { it.jsonObject["type"]!!.jsonPrimitive.content == "settings" }
+                .map { SearchJson.decodeFromString<Settings>(it.jsonObject["detail"]!!.jsonPrimitive.content) }
+            assertEquals(listOf(true, false, false), events.map { it.loudspeaker })
+            assertEquals(Settings(), Preferences(context).load().first)
+            assertFalse(repo.state.value.audioMuted)
+        } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
+    }
+
     @Test fun stoppingIsIdempotentAndArchivingPreservesTheOriginalEndTime() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

@@ -219,8 +219,10 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
             !current.settings.loudspeaker -> current.copy(settings = current.settings.copy(loudspeaker = true))
             else -> current.copy(audioMuted = true, settings = current.settings.copy(loudspeaker = false))
         }
-        preferences.settings(next.settings)
-        current = next; publish()
+        val valid = next.settings.validated()
+        preferences.settings(valid)
+        current = next.copy(settings = valid)
+        event("settings", SearchJson.encodeToString(valid)); publish()
     }
     fun setMute(address: String, always: Boolean = false, muted: Boolean = true) = enqueue {
         val updated = if (muted) current.mutes.mute(address, always) else current.mutes.unmute(address)

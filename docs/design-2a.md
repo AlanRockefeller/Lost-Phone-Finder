@@ -39,9 +39,11 @@ Regression checks cover 60-second history expiration without deleting logs, init
 
 When Android reports a dead audio output, the worker releases and recreates it, reapplies the speaker preference and resumes rendering. Recovery allows three replacements before reporting a persistent failure; one second of successful writes resets the retry allowance. A failed ten-millisecond block is dropped so gain can be recalculated for the replacement's confirmed route. Other write errors keep the existing failure message. See [AudioTrack write errors](https://developer.android.com/reference/android/media/AudioTrack#ERROR_DEAD_OBJECT).
 
-Every foreground Start request is promoted before duplicate-start guards return. A request received during shutdown is promoted and immediately stopped again. Duplicate starts preserve the existing scan and current notification address count. Stop remains idempotent, and archiving a stopped session preserves its original end timestamp and committed results.
+Every foreground Start request is promoted before duplicate-start guards return. A request received during shutdown is promoted, then waits for pending session finalization before stopping. Rejected starts still stop immediately without waiting for storage. Normal Stop retains foreground execution until the stop event, end time and stopped status are saved. The application scope owns finalization so a later promotion failure cannot cancel it. Duplicate starts preserve the existing scan and current notification address count. Stop remains idempotent, and archiving a stopped session preserves its original end timestamp and committed results.
 
 Regression tests cover recreated audio output and later chirps, restored speaker preferences, bounded repeated failures, other write errors, repeated service starts, failed promotion during shutdown, duplicate stop events and session archival timestamps. The offline core check also works with Java on PATH when JAVA_HOME is unset. Historical verification notes explicitly point to the current shared field-test signing certificate.
+
+Header sound-mode changes use validated settings and record settings events, so session JSON exports include loudspeaker changes made after the session started. Regression checks cover the exported mode sequence and a normal Stop blocked by a database transaction, including another Start received during finalization.
 
 ## Stable featured signal
 

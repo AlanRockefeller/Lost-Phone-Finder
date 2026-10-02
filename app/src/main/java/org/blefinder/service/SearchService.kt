@@ -20,6 +20,7 @@ class SearchService : Service() {
     private var gps: LocationLogger? = null
     private var starting = false
     private var stopping = false
+    private var awaitingFinalization = false
     private var simulated = false
     private val bluetoothReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -49,11 +50,14 @@ class SearchService : Service() {
             if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, foregroundNotification, type)
             else startForeground(NOTIFICATION, foregroundNotification)
             // Every foreground start request is promoted, including duplicates and shutdown races.
-            if (stopping) { stopForegroundAndSelf(); return START_NOT_STICKY }
+            if (stopping) {
+                if (!awaitingFinalization) stopForegroundAndSelf()
+                return START_NOT_STICKY
+            }
             if (starting || source != null) return START_NOT_STICKY
             starting = true
             // Promotion must precede radio checks: Bluetooth can switch off after the activity preflight.
-            Readiness.startIssue(this, simulated)?.let { repo.reportError(it); end(); return START_NOT_STICKY }
+            Readiness.startIssue(this, simulated)?.let { repo.reportError(it); end(awaitRepository = false); return START_NOT_STICKY }
             wakeLock.start()
             scope.launch {
                 try {
@@ -92,7 +96,7 @@ class SearchService : Service() {
             }
         } catch (e: Exception) {
             repo.reportError("Unable to start foreground search: ${e.message}")
-            if (stopping) stopForegroundAndSelf() else end()
+            if (stopping) stopForegroundAndSelf() else end(awaitRepository = false)
         }
         return START_NOT_STICKY
     }
@@ -105,14 +109,22 @@ class SearchService : Service() {
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE)
             .addAction(Notification.Action.Builder(null, "Stop search", stop).build()).build()
     }
-    private fun end() {
+    private fun end(awaitRepository: Boolean = true) {
         if (stopping) return
         stopping = true
+        awaitingFinalization = awaitRepository
         wakeLock.stop()
         runCatching { source?.stop() }; source = null; runCatching { gps?.stop() }; gps = null; audio?.close(); audio = null; repo.sound = null
-        // Never leave a rejected foreground-service request waiting for database initialization.
-        stopForegroundAndSelf()
-        (application as SearchApplication).scope.launch { runCatching { repo.stop() } }
+        // Rejected starts must not wait for storage before ending their foreground request.
+        if (!awaitRepository) stopForegroundAndSelf()
+        // Application scope also completes finalization if a later start fails promotion.
+        (application as SearchApplication).scope.launch {
+            try { runCatching { repo.stop() } }
+            finally {
+                awaitingFinalization = false
+                stopForegroundAndSelf()
+            }
+        }
     }
     private fun stopForegroundAndSelf() {
         stopForeground(STOP_FOREGROUND_REMOVE)
