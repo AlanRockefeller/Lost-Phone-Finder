@@ -56,6 +56,7 @@ class SearchService : Service() {
                 try {
                     repo.start(simulated)
                     if (stopping) return@launch
+                    if (!repo.state.value.active) { end(); return@launch }
                     audio = ChirpEngine(this@SearchService) { repo.reportError(it) }
                     audio?.configure(repo.state.value.settings)
                     repo.sound = { observation, new, settings -> audio?.offer(observation, new, settings) }
@@ -110,7 +111,7 @@ class SearchService : Service() {
         source?.stop(); gps?.stop(); audio?.close(); repo.sound = null; repo.fatalError = null
         unregisterReceiver(bluetoothReceiver)
         scope.cancel()
-        (application as SearchApplication).scope.launch { runCatching { repo.stop() } }
+        if (!stopping) (application as SearchApplication).scope.launch { runCatching { repo.stop() } }
         super.onDestroy()
     }
     override fun onBind(intent: Intent?) = null

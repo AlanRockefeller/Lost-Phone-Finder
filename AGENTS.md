@@ -8,3 +8,5 @@
 - Run checks appropriate to each change. For application/build changes, run both variants' automated tests, relevant lint/build tasks, and verify generated APKs when packaging or signing changes.
 - Debug and release field-test APKs must use the same existing private signing certificate so they can replace each other without losing stored data. Never create or substitute a new signing key without an explicit request.
 - The project is GPL-3.0-only; dependencies keep their own licenses.
+
+- Write plain, natural prose in documentation, UI text and comments. Avoid em dashes and canned AI phrasing. Use concrete descriptions of behavior and checks.

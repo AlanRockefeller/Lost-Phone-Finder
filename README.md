@@ -1,8 +1,11 @@
-# Lost Phone Finder v0.1.4
+# Lost Phone Finder v0.1.5
 
-An offline Android instrument for finding BLE transmitters outdoors. Kotlin, Jetpack Compose, generated per-result audio, target tracking, baseline muting, local sessions, optional GPS and JSON/CSV export. No account, network permission, telemetry or backend.
+Lost Phone Finder is a free app that helps you locate a lost device by picking up bluetooth (BLE) signals.  It is designed to be used to find a phone lost in the woods - probably wouldn't be very useful in a city since there will be a lot of bluetooth signals around.
 
-A lost phone must be powered and advertising BLE to appear. This is not a Find My / Find Hub client. Scan results received are **not** every packet transmitted over the air. RSSI means relative signal strength; it is never presented as distance or bearing.
+A lost phone must be powered and advertising BLE to appear (iPhone 11+ and Pixel 8+ can transmit for a few hours after the battery runs down). This is not a Find My / Find Hub client. Scan results received are **not** every packet transmitted over the air due to hardware limitations.
+
+Uses Kotlin, Jetpack Compose, generated per-result audio, target tracking, baseline muting, local sessions, optional GPS and JSON/CSV export. No account, network permission, telemetry or backend.
+
 
 ## Build and run
 
@@ -19,7 +22,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Open this directory in Android Studio, sync, select `app`, and run. Both build variants use the same private signing configuration from `.release-signing/release.properties` if present, or a properties file supplied with `-PreleaseSigningProperties=/private/path/release.properties`. Without one, debug uses the standard development key and release is unsigned. CI builds without a private signing key. First-time dependency downloads require internet **on the development machine**; the app itself operates offline. CI runs builds, both variants' JVM tests, runtime APK audits and lint.
 
-The local v0.1.4 debug and release APKs both use the original field-test/debug certificate (SHA-256 `29235354f935b7dbd62093be213712dec8b426e914fa4ed1134ee3bfa6d4d886`). You can update between these variants without uninstalling or losing saved sessions. Both variants use the same package ID and increasing version codes. Debug enables debugging and synthetic simulation; release disables both. The v0.1.0–v0.1.3 release APKs used a different certificate, so an installation of one of those release APKs still requires a one-time reinstall to switch; export sessions first. The old release key is retained privately for compatibility builds. Keep `.release-signing/` and its backups private; never commit or upload any keystore or signing properties.
+The local debug and release APKs both use the original field-test/debug certificate (SHA-256 `29235354f935b7dbd62093be213712dec8b426e914fa4ed1134ee3bfa6d4d886`). You can update between these variants without uninstalling or losing saved sessions. Both variants use the same package ID and increasing version codes. Debug enables debugging and synthetic simulation; release disables both. The v0.1.0 through v0.1.3 release APKs used a different certificate, so an installation of one of those release APKs still requires a one-time reinstall to switch; export sessions first. The old release key is retained privately for compatibility builds. Keep `.release-signing/` and its backups private; never commit or upload any keystore or signing properties.
 
 See [verification status](docs/VERIFICATION.md) for exactly what was executed in the development environment, including its Gradle sandbox restriction. Do not equate a compiler check or unit test with physical radio testing.
 
@@ -35,7 +38,7 @@ Build APKs through Gradle so runtime dependencies, Android resources, manifests 
 6. Stop and resume the same session as needed. **New session** archives the current session and resets the live list/session mutes. Prior observations remain under Sessions. Clearing target statistics resets the tracking view only; it does not erase the session log.
 7. Export a session or target using the system document picker. Choose local storage for a fully offline export. Sharing exported data is the user's choice.
 
-Debug builds offer **Debug simulation** while stopped. It emits three synthetic transmitters, then introduces a fourth, with changing RSSI and representative names/manufacturer/service data. Simulated records and sessions are conspicuously labeled and exported as simulated. The real simulator exists **only** in `src/debug`; `src/release` rejects its construction and hides its controls. Simulation uses the same service, repository, sound, baseline, tracking and export paths; the foreground service still requests its normal permissions.
+Debug builds offer **Debug simulation** while stopped. It emits three synthetic transmitters, then introduces a fourth, with changing RSSI and representative names/manufacturer/service data. Simulated records and sessions are labeled and exported as simulated. The real simulator exists **only** in `src/debug`; `src/release` rejects its construction and hides its controls. Simulation uses the same service, repository, sound, baseline, tracking and export paths; the foreground service still requests its normal permissions.
 
 ## Project structure
 
@@ -54,7 +57,7 @@ app/src/test/      JVM logic and Robolectric storage integration tests
 app/schemas/       checked-in Room schema v1
 ```
 
-No dependency injection framework or navigation framework. One application repository survives activity recreation; the service owns scanner/audio/GPS lifetimes. Commands are serialized on an IO coroutine; UI snapshots update at 5 Hz. Every callback is queued for storage, including muted and non-target results. UI rendering and audio overload handling never deliberately discard observations. Each observation and its device summary commit in one transaction. A database failure stops searching and exposes an error instead of silently claiming to log.
+One repository survives activity recreation. The service runs the scanner, audio and GPS. A single IO coroutine processes commands, and the UI updates five times per second. Scan results, including muted and non-target results, are stored until a safety limit stops the search. Each observation and its device summary commit in one transaction. Logging limits and database failures stop searching with an explanation. Audio overload only affects chirps.
 
 ## Libraries
 
@@ -92,18 +95,18 @@ Readiness shows Bluetooth, Nearby devices/fine location permissions, location se
 - Aggressive matching / maximum hardware matches. Extended advertisements and all supported PHYs where the adapter supports them; legacy-only adapters use legacy scan configuration.
 - Android's active scan default; explicit `SCAN_TYPE_ACTIVE` on API 37+, guarded because the setter was introduced in 36.1.
 - Capture address, Android address type on API 35+, cached device name, local name, raw RSSI, wall-clock event/receipt times and monotonic controller timestamp. Capture TX powers, flags, service and solicitation UUIDs, manufacturer/service data, connectability, legacy flag, PHYs, SID, periodic interval, data status and callback type. Android's AD map is captured on API 33+.
-- The independently testable parser preserves ordered/repeated AD structures and malformed/truncated raw bytes. Manufacturer identifiers use a small offline company-name table. Unknown companies/data remain visible in hex. No speculative vendor-specific payload decoder is used.
+- The parser preserves ordered/repeated AD structures and malformed/truncated raw bytes. Manufacturer identifiers use a small offline company-name table. Unknown companies/data remain visible in hex. No speculative vendor-specific payload decoder is used.
 - Addresses are concrete session keys, **not physical identities**. Public/random/anonymous types are shown only when Android exposes them; older Android versions say unknown. No MAC-bit heuristic pretends to identify the address type. Random addresses may rotate. Persistent mutes match exact addresses and may miss a rotated address. An unused nullable `probablePhysicalDeviceId` field leaves a future grouping extension without merging devices today. Anonymous results may share the platform's placeholder address; no individual anonymous-device identity is claimed.
 
 ## Audio and statistics
 
-`PitchMapping.points` holds the requested tuning points from -100 dBm/250 Hz through -30 dBm/3200 Hz. Piecewise linear interpolation is continuous; settings remap the endpoints and clamp RSSI. Default chirps are 30 ms, adjustable from 20–50 ms. Unknown Android RSSI 127 is excluded from signal aggregates/normal chirps but its observation is logged.
+`PitchMapping.points` holds the requested tuning points from -100 dBm/250 Hz through -30 dBm/3200 Hz. Piecewise linear interpolation is continuous; settings remap the endpoints and clamp RSSI. Default chirps are 30 ms, adjustable from 20 to 50 ms. Unknown Android RSSI 127 is excluded from signal aggregates/normal chirps but its observation is logged.
 
 One audio worker holds one mono 48 kHz PCM `AudioTrack` in low-latency streaming mode and reuses a sample buffer. It feeds silence between chirps so a single sparse target result can play without waiting for other results to fill the streaming buffer. Short attack/release ramps soften clicks. New devices sound two ascending notes over 80 ms. There are separate chirp/discovery toggles, a master amplitude setting, a session-wide audio mute, and per-address mutes. Chirps use media audio, and the app's volume buttons control media volume. System audio routing/volume still apply.
 
 Optional **Loudspeaker mode** in Settings prefers the built-in speaker for this app's AudioTrack and enables full-scale PCM peaks on a confirmed speaker route (roughly twice the ordinary digital amplitude). It leaves the phone's media volume unchanged; adjust the app slider and media-volume buttons. Boosting is withheld on headphone/Bluetooth routes or when the speaker request is rejected. Turning the option off clears the track's preferred route. The setting is saved across restarts and can change during a search. It does not put the phone into a call/communication mode. Hardware loudness remains device-dependent.
 
-The sound queue holds at most 8 events and drops tones older than 200 ms; overload favors recent feedback, and discovery events can displace pending ordinary tones. Observations are logged independently. At ordinary advertisement rates each result can sound; very dense environments are intentionally not an unlimited audio backlog. Audio failure is reported while scanning/logging continue.
+The sound queue holds at most 8 events and drops tones older than 200 ms; overload favors recent feedback, and discovery events can displace pending ordinary tones. Observations are logged independently. At ordinary advertisement rates each result can sound; busy radio environments can produce more results than the speaker can play. Audio failure is reported while scanning/logging continue.
 
 Statistics track count, valid-RSSI count, current/min/max/online mean/EMA, first/last time and a sliding five-second result-rate window. Rate is results within `(now - 5 s, now] / 5`, including the initial window, and decays to zero during silence. EMA defaults to 0.25; settings tune it without affecting raw audio. Resetting a target view does not delete recorded data or rewrite session-wide statistics.
 
@@ -143,7 +146,7 @@ For a quick hardware-free check, use debug simulation and confirm discovery, raw
 
 ## Known limits
 
-Android can pause unfiltered scans when the display turns off and can throttle starts, results or background activity; OEM firmware adds variation. The inclusive filter configuration and CPU wake lock support screen-off discovery and pings but cannot override Doze or all OEM restrictions. Active searches use more battery, even with the display off. Press Stop when finished. The app intentionally does not restart scanning in a rapid loop or when screen state/target selection changes. After scanner throttling, wait at least 30 seconds and retry manually.
+Android can pause unfiltered scans when the display turns off and can throttle starts, results or background activity; OEM firmware adds variation. The inclusive filter configuration and CPU wake lock support screen-off discovery and pings but cannot override Doze or all OEM restrictions. Active searches use more battery, even with the display off. Press Stop when finished. The app does not restart scanning when the screen or selected target changes. After scanner throttling, wait at least 30 seconds and retry manually.
 
 Names and company IDs are advertised claims, not ownership or verified manufacturer identity. Manufacturer names cover a small table. No auto-clustering, encrypted-identifier resolution, AoA/AoD, maps, network lookups or vendor finder-network integration. Only the most recent 50 results per target are selectable in the detail UI; **all committed results** are exportable. Radio interference, body shielding, reflections, antenna orientation and phone model strongly affect RSSI. RSSI may remain stale during silence; age is displayed prominently.
 
@@ -168,3 +171,9 @@ All coding happens on `test`. Push changes to `test` and open a pull request int
 ## License
 
 Copyright (c) 2026 Alan Rockefeller. This project is licensed under the GNU General Public License version 3 (SPDX: GPL-3.0-only). See [LICENSE](LICENSE). Third-party dependencies retain their respective licenses.
+
+## Logging limits
+
+Search stops with an explanation if the database reaches 1 GiB, free phone storage falls below 256 MiB, a session reaches 50,000 addresses, or more than 8,192 scan results are waiting to be stored. These limits are intended for unusually heavy traffic. Existing results remain available to export; nothing is automatically deleted. Results arriving after the cutoff are not logged, and the session records why logging stopped.
+
+Database usage includes the main SQLite file, pending WAL writes and shared-memory files. It is checked before each start and during a search every second or 128 stored results, whichever comes first. File sizes can briefly exceed the threshold between checks. The database limit applies across all saved sessions. Creating a new session does not reset that limit. If the database limit is reached, export the sessions you need before using Android app settings to clear this app's storage. Clearing storage also resets preferences and mutes. For the address or queue limit, a new session or a restart after the traffic has subsided can be enough.

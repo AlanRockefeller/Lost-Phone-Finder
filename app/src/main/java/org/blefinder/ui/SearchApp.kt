@@ -30,9 +30,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val timeFormat = DateTimeFormatter.ofPattern("MMM d HH:mm:ss.SSS").withZone(ZoneId.systemDefault())
-fun timeText(time: Long): String = if (time == 0L) "—" else timeFormat.format(Instant.ofEpochMilli(time))
-fun number(value: Double?): String = value?.let { "%.1f".format(it) } ?: "—"
-fun signal(value: Int?): String = value?.toString() ?: "—"
+fun timeText(time: Long): String = if (time == 0L) "N/A" else timeFormat.format(Instant.ofEpochMilli(time))
+fun number(value: Double?): String = value?.let { "%.1f".format(it) } ?: "N/A"
+fun signal(value: Int?): String = value?.toString() ?: "N/A"
 
 @Composable
 fun SearchApp(repo: SearchRepository, status: String?, dismissStatus: () -> Unit,
