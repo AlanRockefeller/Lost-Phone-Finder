@@ -38,15 +38,20 @@ class SearchService : Service() {
     @android.annotation.SuppressLint("MissingPermission") // A denied notification permission may suppress the drawer entry; FGS remains visible in Android active apps.
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) { end(); return START_NOT_STICKY }
-        if (starting || source != null || stopping) return START_NOT_STICKY
-        starting = true
-        simulated = intent?.getBooleanExtra("simulate", false) == true && DemoFactory.available
+        if (!starting && source == null && !stopping) {
+            simulated = intent?.getBooleanExtra("simulate", false) == true && DemoFactory.available
+        }
         try {
             check(Readiness.scanPermissions(this)) { "Grant Nearby devices and precise location permissions before starting" }
             val type = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or
                 (if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0) else 0
-            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, notification(0), type)
-            else startForeground(NOTIFICATION, notification(0))
+            val foregroundNotification = notification(repo.state.value.devices.size)
+            if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION, foregroundNotification, type)
+            else startForeground(NOTIFICATION, foregroundNotification)
+            // Every foreground start request is promoted, including duplicates and shutdown races.
+            if (stopping) { stopForegroundAndSelf(); return START_NOT_STICKY }
+            if (starting || source != null) return START_NOT_STICKY
+            starting = true
             // Promotion must precede radio checks: Bluetooth can switch off after the activity preflight.
             Readiness.startIssue(this, simulated)?.let { repo.reportError(it); end(); return START_NOT_STICKY }
             wakeLock.start()
@@ -85,7 +90,10 @@ class SearchService : Service() {
                 } catch (e: Exception) { repo.reportError("Unable to start search: ${e.message}"); end() }
                 finally { starting = false }
             }
-        } catch (e: Exception) { repo.reportError("Unable to start foreground search: ${e.message}"); end() }
+        } catch (e: Exception) {
+            repo.reportError("Unable to start foreground search: ${e.message}")
+            if (stopping) stopForegroundAndSelf() else end()
+        }
         return START_NOT_STICKY
     }
     private fun notification(count: Int): Notification {
@@ -103,9 +111,12 @@ class SearchService : Service() {
         wakeLock.stop()
         runCatching { source?.stop() }; source = null; runCatching { gps?.stop() }; gps = null; audio?.close(); audio = null; repo.sound = null
         // Never leave a rejected foreground-service request waiting for database initialization.
+        stopForegroundAndSelf()
+        (application as SearchApplication).scope.launch { runCatching { repo.stop() } }
+    }
+    private fun stopForegroundAndSelf() {
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-        (application as SearchApplication).scope.launch { runCatching { repo.stop() } }
     }
     override fun onDestroy() {
         wakeLock.stop()

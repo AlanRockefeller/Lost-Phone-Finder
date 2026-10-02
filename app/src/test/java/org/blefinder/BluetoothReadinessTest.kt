@@ -25,7 +25,14 @@ class BluetoothReadinessTest {
         shadowOf(app.getSystemService(BluetoothManager::class.java).adapter).setEnabled(false)
     }
     @After fun close() = runBlocking {
-        app.scope.coroutineContext[Job]!!.cancelAndJoin()
+        val job = app.scope.coroutineContext[Job]!!
+        job.cancel()
+        withTimeout(5000) {
+            while (!job.isCompleted) {
+                shadowOf(android.os.Looper.getMainLooper()).idle()
+                delay(1)
+            }
+        }
         app.database.close()
     }
     @Test fun disabledBluetoothExplainsHowToStartAndSimulationRemainsAvailable() {
@@ -62,6 +69,40 @@ class BluetoothReadinessTest {
             assertEquals(0, pcm.first().toInt())
             assertEquals(0, pcm.last().toInt())
             assertTrue(pcm.maxOf { kotlin.math.abs(it.toInt()) } in 29000..30000)
+        }
+    }
+
+    @Test fun startDuringShutdownAttemptsPromotionAndStopsAgainIfItFails() = runBlocking {
+        val controller = Robolectric.buildService(SearchService::class.java).create()
+        try {
+            controller.startCommand(0, 1) // Bluetooth off begins shutdown.
+            val service = shadowOf(controller.get())
+            assertTrue(service.isStoppedBySelf)
+            service.setThrowInStartForeground(SecurityException("promotion regression test"))
+            controller.startCommand(0, 2)
+            app.repository.recent("unused")
+            assertTrue(app.repository.state.value.error!!.contains("promotion regression test"))
+            assertTrue(service.isStoppedBySelf)
+            assertFalse(service.isLastForegroundNotificationAttached)
+        } finally { controller.destroy() }
+    }
+
+    @Test fun duplicateStartRestoresForegroundNotificationDuringPendingStartup() {
+        shadowOf(app.getSystemService(BluetoothManager::class.java).adapter).setEnabled(true)
+        shadowOf(app.getSystemService(android.location.LocationManager::class.java)).setLocationEnabled(true)
+        val controller = Robolectric.buildService(SearchService::class.java).create()
+        try {
+            controller.startCommand(0, 1)
+            val instance = controller.get()
+            val service = shadowOf(instance)
+            assertNotNull(service.lastForegroundNotification)
+            instance.stopForeground(android.app.Service.STOP_FOREGROUND_REMOVE)
+            assertNull(service.lastForegroundNotification)
+            controller.startCommand(0, 2)
+            assertNotNull(service.lastForegroundNotification)
+        } finally {
+            controller.get().onStartCommand(Intent(app, SearchService::class.java).setAction(SearchService.STOP), 0, 3)
+            controller.destroy()
         }
     }
 

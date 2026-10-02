@@ -152,7 +152,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         return true
     }
     fun restartSession() = enqueue {
-        session?.let { db.dao().finish(it.id, System.currentTimeMillis(), "archived") }
+        session?.let { db.dao().finish(it.id, it.endedAt ?: System.currentTimeMillis(), "archived") }
         createSession(current.simulated)
         if (!current.active) {
             session = session!!.copy(endedAt = System.currentTimeMillis(), status = "stopped")

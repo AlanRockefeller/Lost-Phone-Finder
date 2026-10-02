@@ -1,8 +1,8 @@
-# Verification record — 2026-10-01 packaging fix (historical)
+# Verification record: 2026-10-01 packaging fix (historical)
 
-Current release verification is recorded in [v0.1.0 release notes](RELEASE_0.1.0.md): the remaining lint error has been fixed, both full lint variants pass, and the release APK is now signed with a permanent key. This page preserves the earlier packaging investigation.
+This page preserves the earlier packaging investigation and the historical [v0.1.0 verification record](RELEASE_0.1.0.md). Its signing guidance does not apply to current APKs. Current debug and release field-test builds share the existing private certificate described in [v0.1.4 signing notes](SIGNING_0.1.4.md).
 
-The current signed debug APK at `app/build/outputs/apk/debug/app-debug.apk` includes the later [audio fix](AUDIO_FIX.md). The packaging-only APK described below was 12,224,747 bytes and has been superseded at that path.
+At the time of that investigation, the signed debug APK at `app/build/outputs/apk/debug/app-debug.apk` included the later [audio fix](AUDIO_FIX.md). The packaging-only APK described below was 12,224,747 bytes and has been superseded at that path.
 
 SHA-256: `1d7b3cf853862eaa861b898d02b2a841967b64abdf1d3a88d6008f6f5523948f`
 

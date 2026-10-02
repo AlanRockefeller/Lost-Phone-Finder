@@ -29,6 +29,7 @@ class ChirpEngineTest {
         val closed = CountDownLatch(1)
         val routes = LinkedBlockingQueue<Boolean>()
         var acceptSpeaker = true
+        @Volatile var nextError: Int? = null
         private var speaker = false
         override fun setSpeaker(enabled: Boolean): Boolean {
             routes.add(enabled)
@@ -38,6 +39,7 @@ class ChirpEngineTest {
         override fun isSpeakerRouted() = speaker
         override fun write(buffer: ShortArray, offset: Int, size: Int): Int {
             advance.acquire()
+            nextError?.let { nextError = null; return it }
             writes.put(buffer.copyOfRange(offset, offset + size))
             return size
         }
@@ -161,6 +163,60 @@ class ChirpEngineTest {
             assertTrue(cancellation.last().all { it == 0.toShort() })
             assertTrue(failures.isEmpty())
         } finally { engine.close(); assertTrue(output.closed.await(5, TimeUnit.SECONDS)) }
+    }
+
+    @Test fun deadOutputIsReplacedAndSpeakerPreferenceAndLaterChirpsRecover() {
+        val first = Output()
+        val replacement = Output()
+        val failures = LinkedBlockingQueue<String>()
+        val opened = java.util.concurrent.atomic.AtomicInteger()
+        val engine = ChirpEngine(failures::add, { if (opened.getAndIncrement() == 0) first else replacement }, { 0L })
+        try {
+            val settings = Settings(volume = 1f, loudspeaker = true)
+            engine.configure(settings)
+            repeat(3) { first.next() }
+            first.nextError = android.media.AudioTrack.ERROR_DEAD_OBJECT
+            first.advance.release()
+            assertTrue(first.closed.await(5, TimeUnit.SECONDS))
+            repeat(3) { replacement.next() }
+            assertEquals(2, opened.get())
+            assertEquals(listOf(true), replacement.routes.toList())
+            engine.offer(observation(), false, settings)
+            val peak = (1..5).flatMap { replacement.next().toList() }.maxOf { kotlin.math.abs(it.toInt()) }
+            assertTrue(peak in 30000..32767)
+            assertTrue(failures.isEmpty())
+        } finally { engine.close(); assertTrue(replacement.closed.await(5, TimeUnit.SECONDS)) }
+    }
+
+    @Test fun repeatedDeadOutputsHaveBoundedRecoveryAndReleaseEveryOutput() {
+        assertPermanentWriteFailure(android.media.AudioTrack.ERROR_DEAD_OBJECT, 4, "repeatedly")
+    }
+
+    @Test fun otherWriteFailuresKeepExistingFailureBehavior() {
+        assertPermanentWriteFailure(android.media.AudioTrack.ERROR_BAD_VALUE, 1, "Audio output failed")
+    }
+
+    private fun assertPermanentWriteFailure(code: Int, expectedOpens: Int, message: String) {
+        val failures = LinkedBlockingQueue<String>()
+        val opened = java.util.concurrent.atomic.AtomicInteger()
+        val closed = java.util.concurrent.atomic.AtomicInteger()
+        val engine = ChirpEngine(failures::add, {
+            opened.incrementAndGet()
+            object : PcmOutput {
+                override fun setSpeaker(enabled: Boolean) = true
+                override fun isSpeakerRouted() = false
+                override fun write(buffer: ShortArray, offset: Int, size: Int) = code
+                override fun close() { closed.incrementAndGet() }
+            }
+        }, { 0L })
+        try {
+            assertTrue(checkNotNull(failures.poll(5, TimeUnit.SECONDS)).contains(message))
+        } finally { engine.close() }
+        // Failure reporting precedes the worker's final resource release.
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (closed.get() < expectedOpens && System.nanoTime() < deadline) Thread.yield()
+        assertEquals(expectedOpens, opened.get())
+        assertEquals(expectedOpens, closed.get())
     }
 
 }

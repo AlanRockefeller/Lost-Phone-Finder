@@ -65,6 +65,8 @@ class ChirpEngine internal constructor(
             val recordings = recordingLoader()
             output = outputFactory()
             val buffer = ShortArray(480) // Ten milliseconds, including during silence.
+            var recoveryAttempts = 0
+            var healthySamples = 0
             var appliedSpeaker: Boolean? = null
             var routeFrames = 0
             var routeReported = false
@@ -72,13 +74,14 @@ class ChirpEngine internal constructor(
             var pcm = ShortArray(0)
             var position = 0
             while (running.get()) {
+                val stream = checkNotNull(output)
                 val requestedSpeaker = loudspeaker
                 if (appliedSpeaker != requestedSpeaker) {
-                    routeReported = !output.setSpeaker(requestedSpeaker)
+                    routeReported = !stream.setSpeaker(requestedSpeaker)
                     if (routeReported) failure("Requested audio route unavailable; sound uses the current output at normal gain.")
                     appliedSpeaker = requestedSpeaker; routeFrames = 0
                 }
-                val speakerConfirmed = requestedSpeaker && output.isSpeakerRouted()
+                val speakerConfirmed = requestedSpeaker && stream.isSpeakerRouted()
                 if (requestedSpeaker && !speakerConfirmed && !routeReported && ++routeFrames >= 50) {
                     failure("Phone speaker routing was not confirmed. Sound uses the current output at normal gain.")
                     routeReported = true
@@ -106,9 +109,23 @@ class ChirpEngine internal constructor(
                 }
                 var offset = 0
                 while (offset < buffer.size && running.get()) {
-                    val wrote = output.write(buffer, offset, buffer.size - offset)
+                    val wrote = stream.write(buffer, offset, buffer.size - offset)
+                    if (!running.get()) break
+                    if (wrote == AudioTrack.ERROR_DEAD_OBJECT) {
+                        check(recoveryAttempts < 3) { "Audio output repeatedly became unavailable" }
+                        recoveryAttempts++; healthySamples = 0
+                        runCatching { stream.close() }
+                        output = null
+                        output = outputFactory()
+                        appliedSpeaker = null; routeFrames = 0; routeReported = false
+                        // Drop this failed block; recompute gain on the replacement's confirmed route.
+                        break
+                    }
                     check(wrote > 0) { "Audio output failed ($wrote)" }
                     offset += wrote
+                    healthySamples += wrote
+                    // A stable second of playback allows recovery from a later, unrelated route loss.
+                    if (healthySamples >= 48_000) { recoveryAttempts = 0; healthySamples = 0 }
                 }
             }
         } catch (_: InterruptedException) { /* Normal shutdown. */ }

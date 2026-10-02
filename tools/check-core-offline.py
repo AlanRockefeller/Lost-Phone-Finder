@@ -10,7 +10,7 @@ import subprocess
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--cache', type=Path, default=Path.home() / '.gradle/caches/modules-2/files-2.1')
-parser.add_argument('--java', default=os.environ.get('JAVA_HOME', '') + '/bin/java')
+parser.add_argument('--java', default=str(Path(os.environ['JAVA_HOME']) / 'bin/java') if os.environ.get('JAVA_HOME') else 'java')
 args = parser.parse_args()
 root = Path(__file__).resolve().parent.parent
 out = root / 'build/offline-core'
