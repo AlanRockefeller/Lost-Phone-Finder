@@ -41,6 +41,10 @@ import java.time.format.DateTimeFormatter
 private val timeFormat = DateTimeFormatter.ofPattern("MMM d HH:mm:ss.SSS").withZone(ZoneId.systemDefault())
 fun timeText(time: Long): String = if (time == 0L) "N/A" else timeFormat.format(Instant.ofEpochMilli(time))
 fun number(value: Double?): String = value?.let { "%.1f".format(it).replace('-', '−') } ?: "N/A"
+fun rateText(stats: SignalStats, nowElapsed: Long): String {
+    val rate = stats.rate(nowElapsed)
+    return if (rate == 0.0) "—" else "${number(rate)}/s"
+}
 fun signal(value: Int?): String = value?.toString()?.replace('-', '−') ?: "N/A"
 fun ageText(device: DeviceRecord, state: SearchState): String = "${(state.nowElapsed - device.latest.receivedElapsedMillis).coerceAtLeast(0) / 1000}s ago"
 
@@ -167,7 +171,7 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
                 }
                 Text(summary, fontSize = 12.sp, color = FinderColors.neutral400)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(session.id.take(8), Modifier.weight(1f), fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = FinderColors.neutral600)
+                    Text(session.id.take(8), Modifier.weight(1f), fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp, color = FinderColors.neutral600)
                     ActionButton("JSON", { export(session.id, null, true) }, icon = R.drawable.ic_export)
                     ActionButton("CSV", { export(session.id, null, false) }, secondary = true)
                 }
@@ -183,7 +187,7 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
 
 @Composable private fun ToolChip(label: String, icon: Int? = null, active: Boolean = false, enabled: Boolean = true, click: () -> Unit) {
     Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
-        Row(Modifier.heightIn(min = 48.dp).background(if (active) FinderColors.accent800 else FinderColors.surface, RoundedCornerShape(6.dp))
+        Row(Modifier.heightIn(min = 48.dp).background(if (active) FinderColors.accent.copy(alpha = .12f) else FinderColors.surface, RoundedCornerShape(6.dp))
             .border(1.dp, if (active) FinderColors.accent else FinderColors.neutral800, RoundedCornerShape(6.dp)).clickable(enabled = enabled, onClick = click)
             .padding(horizontal = 9.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             if (icon != null) FinderIcon(icon, modifier = Modifier.size(16.dp), color = if (active) FinderColors.accent300 else FinderColors.neutral400)
@@ -208,58 +212,61 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
     // Keep the menu anchor still while live signal strengths reorder the list.
     val devices = menuDevices ?: visibleDevices(state.devices, if (search) SortOrder.CURRENT else sort, search || hide, state.mutes)
     val menuChange: (Boolean) -> Unit = { open -> menuDevices = if (open) devices else null }
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
-        item {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (search) {
-                    val baseline = state.baseline
-                    ToolChip(if (baseline == null) "Baseline ${state.settings.baselineSeconds}s" else "Baseline ${baseline.remainingSeconds(state.nowElapsed)} s · ${baseline.addresses.size} found", R.drawable.ic_timer, enabled = state.active) {
-                        if (baseline == null) repo.beginBaseline() else repo.cancelBaseline()
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val screenWidth = maxWidth
+        LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
+            item {
+                Row(Modifier.fillMaxWidth().wrapContentWidth(unbounded = true).width(screenWidth).horizontalScroll(rememberScrollState()).padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (search) {
+                        val baseline = state.baseline
+                        ToolChip(if (baseline == null) "Baseline ${state.settings.baselineSeconds}s" else "Baseline ${baseline.remainingSeconds(state.nowElapsed)} s · ${baseline.addresses.size} found", R.drawable.ic_timer, enabled = state.active) {
+                            if (baseline == null) repo.beginBaseline() else repo.cancelBaseline()
+                        }
+                        if (baseline != null) ToolChip("Cancel", click = repo::cancelBaseline)
+                        ToolChip("New session", R.drawable.ic_plus, enabled = state.ready, click = restart)
+                        ToolChip(if (failed == 0) "Ready" else "$failed checks", if (failed == 0) R.drawable.ic_check else R.drawable.ic_warning_circle, active = failed == 0) { readiness = true }
+                    } else {
+                        Box {
+                            ToolChip(when (sort) { SortOrder.CURRENT -> "Strongest"; SortOrder.RECENT -> "Recent"; SortOrder.BEST -> "Best"; SortOrder.FIRST -> "First seen"; SortOrder.COUNT -> "Results" }, R.drawable.ic_sort_descending, active = true) { sortMenu = true }
+                            DropdownMenu(sortMenu, { sortMenu = false }) { SortOrder.entries.forEach { option -> DropdownMenuItem(text = { Text(option.label) }, onClick = { sort = option; sortMenu = false }) } }
+                        }
+                        ToolChip("Hide muted", active = hide) { hide = !hide }
+                        ToolChip("Group by profile", active = grouped) { grouped = !grouped }
                     }
-                    if (baseline != null) ToolChip("Cancel", click = repo::cancelBaseline)
-                    ToolChip("New session", R.drawable.ic_plus, enabled = state.ready, click = restart)
-                    ToolChip(if (failed == 0) "Ready to search" else "$failed checks need attention", if (failed == 0) R.drawable.ic_check else R.drawable.ic_warning_circle, active = failed == 0) { readiness = true }
-                } else {
-                    Box {
-                        ToolChip(when (sort) { SortOrder.CURRENT -> "Strongest"; SortOrder.RECENT -> "Recent"; SortOrder.BEST -> "Best"; SortOrder.FIRST -> "First seen"; SortOrder.COUNT -> "Results" }, R.drawable.ic_sort_descending, active = true) { sortMenu = true }
-                        DropdownMenu(sortMenu, { sortMenu = false }) { SortOrder.entries.forEach { option -> DropdownMenuItem(text = { Text(option.label) }, onClick = { sort = option; sortMenu = false }) } }
-                    }
-                    ToolChip("Hide muted", active = hide) { hide = !hide }
-                    ToolChip("Group by profile", active = grouped) { grouped = !grouped }
                 }
             }
+            if (state.baselineReview.isNotEmpty()) {
+                item { DisclosureRow("Baseline review · ${state.baselineReview.size} addresses", review) { review = !review } }
+                if (review) items(state.baselineReview.toList(), key = { "baseline-$it" }) { address -> FinderCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                    Text(address, fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp); Text("Mute: ${state.mutes.kind(address)}"); MuteButtons(address, state.mutes, repo)
+                } } }
+            }
+            if (devices.isEmpty()) item { Text(if (state.active) "Listening for BLE advertisements… A phone must be advertising to appear." else "No scan results yet. Start a search outdoors or use debug simulation.", color = FinderColors.neutral400) }
+            if (search && devices.isNotEmpty()) {
+                val featured = devices.firstOrNull { it.address == state.featuredAddress }
+                if (featured != null) item(key = "featured-${featured.address}") { FeaturedDevice(featured, state, repo) }
+                else item { SmallNote("No recent signal to feature. Previously seen addresses remain below.") }
+                val nearby = devices.filterNot { it.address == featured?.address }
+                if (nearby.isNotEmpty()) {
+                    item { SectionLabel(if (featured == null) "ADDRESSES SEEN" else "ALSO NEARBY") }
+                    items(nearby.chunked(2), key = { it.first().address }) { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            pair.forEach { device -> Box(Modifier.weight(1f)) { CompactDevice(device, state, repo) } }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            } else if (!search && grouped) {
+                packetBuckets(devices).forEachIndexed { i, bucket ->
+                    item(key = "profile-${bucket.key}") {
+                        Text("${bucket.label} · ${bucket.devices.size} addresses", fontSize = 12.sp, color = FinderColors.accent)
+                        if (i == 0) SmallNote("Buckets share manufacturer / service data format. They may contain multiple physical devices. Addresses remain separate for tracking and muting.")
+                    }
+                    items(bucket.devices, key = { it.address }) { DeviceCard(it, state, repo, menuChange) }
+                }
+            } else if (!search) items(devices, key = { it.address }) { DeviceCard(it, state, repo, menuChange) }
+            item { SmallNote("RSSI is relative signal strength, not distance. Addresses can rotate.") }
         }
-        if (state.baselineReview.isNotEmpty()) {
-            item { DisclosureRow("Baseline review · ${state.baselineReview.size} addresses", review) { review = !review } }
-            if (review) items(state.baselineReview.toList(), key = { "baseline-$it" }) { address -> FinderCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-                Text(address, fontFamily = FontFamily.Monospace, fontSize = 11.sp); Text("Mute: ${state.mutes.kind(address)}"); MuteButtons(address, state.mutes, repo)
-            } } }
-        }
-        if (devices.isEmpty()) item { Text(if (state.active) "Listening for BLE advertisements… A phone must be advertising to appear." else "No scan results yet. Start a search outdoors or use debug simulation.", color = FinderColors.neutral400) }
-        if (search && devices.isNotEmpty()) {
-            val featured = devices.firstOrNull { it.address == state.featuredAddress }
-            if (featured != null) item(key = "featured-${featured.address}") { FeaturedDevice(featured, state, repo) }
-            else item { SmallNote("No recent signal to feature. Previously seen addresses remain below.") }
-            val nearby = devices.filterNot { it.address == featured?.address }
-            if (nearby.isNotEmpty()) {
-                item { SectionLabel(if (featured == null) "ADDRESSES SEEN" else "ALSO NEARBY") }
-                items(nearby.chunked(2), key = { it.first().address }) { pair ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        pair.forEach { device -> Box(Modifier.weight(1f)) { CompactDevice(device, state, repo) } }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
-                    }
-                }
-            }
-        } else if (!search && grouped) {
-            packetBuckets(devices).forEachIndexed { i, bucket ->
-                item(key = "profile-${bucket.key}") {
-                    Text("${bucket.label} · ${bucket.devices.size} addresses", fontSize = 12.sp, color = FinderColors.accent)
-                    if (i == 0) SmallNote("Buckets share manufacturer / service data format. They may contain multiple physical devices. Addresses remain separate for tracking and muting.")
-                }
-                items(bucket.devices, key = { it.address }) { DeviceCard(it, state, repo, menuChange) }
-            }
-        } else if (!search) items(devices, key = { it.address }) { DeviceCard(it, state, repo, menuChange) }
-        item { SmallNote("RSSI is relative signal strength, not distance. Addresses can rotate.") }
     }
     if (readiness) ModalBottomSheet(onDismissRequest = { readiness = false }, containerColor = FinderColors.surface) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -287,12 +294,12 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
 @Composable private fun FeaturedDevice(device: DeviceRecord, state: SearchState, repo: SearchRepository) {
     val samples = state.signalHistory[device.address].orEmpty()
     FinderCard(Modifier.fillMaxWidth(), featured = true) {
-        Column(Modifier.background(Brush.radialGradient(listOf(FinderColors.accent900.copy(alpha = .65f), FinderColors.surface))).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("STRONGEST NOW", fontSize = 10.sp, color = FinderColors.accent)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(device.displayName ?: "Unnamed transmitter", fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(device.address, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = FinderColors.neutral400)
+                    Text(device.address, fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp, color = FinderColors.neutral400)
                 }
                 Text(signal(device.stats.current), fontSize = 44.sp, color = FinderColors.accent300, maxLines = 1)
             }
@@ -312,7 +319,7 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
                 Text(device.displayName ?: "Unnamed transmitter", Modifier.weight(1f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (state.mutes.isMuted(device.address)) FinderIcon(R.drawable.ic_bell_slash, description = "Muted", modifier = Modifier.size(16.dp))
             }
-            Text(device.address.takeLast(8), fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = FinderColors.neutral600)
+            Text(device.address.takeLast(8), fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp, color = FinderColors.neutral600)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(signal(device.stats.current), Modifier.weight(1f), fontSize = 24.sp, maxLines = 1)
                 Text(ageText(device, state), fontSize = 10.sp, color = FinderColors.neutral500, maxLines = 1)
@@ -337,7 +344,7 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
                         Text(device.displayName ?: "Unnamed transmitter", Modifier.weight(1f, fill = false), fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (muted) StatusTag("Muted") else if (state.nowWall - stats.firstSeen < 6000) StatusTag("New", true)
                     }
-                    Text(device.address, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = FinderColors.neutral400, maxLines = 1)
+                    Text(device.address, fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp, color = FinderColors.neutral400, maxLines = 1)
                 }
                 SignalGraph(state.signalHistory[device.address].orEmpty(), state.nowElapsed, state.settings.rssiMin, state.settings.rssiMax, Modifier.padding(horizontal = 6.dp).size(64.dp, 28.dp), muted)
                 Text(signal(stats.current), fontSize = 26.sp, color = if (muted) FinderColors.neutral500 else if (strongest) FinderColors.accent300 else FinderColors.text, maxLines = 1)
@@ -350,7 +357,7 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
                     }
                 }
             }
-            Text("Best ${signal(stats.strongest)} · ${stats.count} results · ${number(stats.rate(state.nowElapsed))}/s · ${ageText(device, state)}", fontSize = 11.sp, color = FinderColors.neutral500, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Best ${signal(stats.strongest)} · ${stats.count} results · ${rateText(stats, state.nowElapsed)} · ${ageText(device, state)}", fontSize = 11.sp, color = FinderColors.neutral500, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

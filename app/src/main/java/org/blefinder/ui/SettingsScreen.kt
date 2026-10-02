@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,6 +56,7 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
         }
     }
     var page by rememberSaveable { mutableStateOf<String?>(null) }
+    var info by rememberSaveable { mutableStateOf<String?>(null) }
     var slider by remember { mutableStateOf<String?>(null) }
     BackHandler(page != null || slider != null) { if (slider != null) slider = null else page = null }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)) {
@@ -85,7 +87,7 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
                         if (state.mutes.persistent.isEmpty()) Text("No always-muted addresses.")
                     }
                     items(state.mutes.persistent.sorted(), key = { it }) { address -> FinderCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
-                        Text(address, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        Text(address, fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp)
                         ActionButton("Remove persistent mute", { repo.setMute(address, muted = false) }, secondary = true)
                     } } }
                 }
@@ -127,17 +129,28 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
                 FadingDivider()
                 SettingsRow("Baseline duration", "${s.baselineSeconds} sec") { slider = "baseline" }
                 FadingDivider()
-                Toggle("GPS logging · ${if (s.gps) "On" else "Off"}", s.gps, enabled = !state.active) { repo.updateSettings(s.copy(gps = it)) }
-                SmallNote("Optional GPS adds coordinates and accuracy to search observations. It requires location services; BLE can scan with GPS logging disabled. Change it before starting a search.")
+                Toggle("GPS logging", s.gps, enabled = !state.active) { repo.updateSettings(s.copy(gps = it)) }
+                SettingsHelper("Adds coordinates to observations. Set before starting.", "GPS logging") { info = "gps" }
                 FadingDivider()
-                Toggle("Keep display awake · ${if (s.keepAwake) "On" else "Off"}", s.keepAwake) { repo.updateSettings(s.copy(keepAwake = it)) }
-                SmallNote("Search is configured to keep discovering devices and pinging while the screen is off. Active searches keep the CPU awake and use more battery; Stop releases it.")
+                Toggle("Keep display awake", s.keepAwake) { repo.updateSettings(s.copy(keepAwake = it)) }
+                SettingsHelper("Uses more battery during a search.", "Keep display awake") { info = "awake" }
                 FadingDivider()
                 SettingsRow("Always-muted addresses", state.mutes.persistent.size.toString()) { page = "mutes" }
                 FadingDivider()
                 SettingsRow("Privacy", "") { page = "privacy" }
             }
             item { ActionButton("Restore default settings", { repo.updateSettings(Settings(gps = if (state.active) s.gps else false)) }, Modifier.fillMaxWidth(), secondary = true) }
+        }
+    }
+    if (info != null) ModalBottomSheet(onDismissRequest = { info = null }, containerColor = FinderColors.surface) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(if (info == "gps") "GPS logging" else "Keep display awake", style = MaterialTheme.typography.titleLarge)
+            Text(if (info == "gps")
+                "Optional GPS adds coordinates and accuracy to search observations. It requires location services; BLE can scan with GPS logging disabled. Change it before starting a search."
+            else
+                "Keep display awake leaves the screen on during a search and uses more battery. Search is configured to keep discovering devices and pinging while the screen is off. Active searches keep the CPU awake; Stop releases it.", fontSize = 13.sp)
+            ActionButton("Done", { info = null }, Modifier.fillMaxWidth())
+            Spacer(Modifier.height(16.dp))
         }
     }
     if (slider != null) ModalBottomSheet(onDismissRequest = { slider = null }, containerColor = FinderColors.surface) {
@@ -149,6 +162,14 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
             ActionButton("Done", { slider = null }, Modifier.fillMaxWidth())
             Spacer(Modifier.height(16.dp))
         }
+    }
+}
+
+@Composable private fun SettingsHelper(text: String, label: String, click: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, Modifier.weight(1f), fontSize = 11.sp, color = FinderColors.neutral500,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        IconButton(onClick = click) { FinderIcon(R.drawable.ic_info, description = "About $label", color = FinderColors.neutral500) }
     }
 }
 
