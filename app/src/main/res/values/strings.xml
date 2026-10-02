@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">Lost Phone Finder</string>
+    <string name="search_active_title">%1$s active</string>
+    <string name="search_simulation_title">%1$s • SIMULATION</string>
+    <string name="nearby_permission_explanation">Nearby devices lets %1$s detect advertisements and read device names. Precise location is needed because BLE signal strength is used to infer proximity. GPS coordinates are recorded only when GPS logging is enabled.</string>
+</resources>

@@ -1,0 +1,20 @@
+.gradle/
+.kotlin/
+.idea/
+local.properties
+**/build/
+*.iml
+*.jks
+*.keystore
+.release-signing/
+
+# Distribution artifacts, local diagnostics, and secrets
+*.apk
+*.aab
+*.log
+*.hprof
+.cxx/
+captures/
+.env
+.env.*
+.DS_Store
