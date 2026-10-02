@@ -237,10 +237,13 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
         }
         if (devices.isEmpty()) item { Text(if (state.active) "Listening for BLE advertisements… A phone must be advertising to appear." else "No scan results yet. Start a search outdoors or use debug simulation.", color = FinderColors.neutral400) }
         if (search && devices.isNotEmpty()) {
-            item(key = "featured-${devices.first().address}") { FeaturedDevice(devices.first(), state, repo) }
-            if (devices.size > 1) {
-                item { SectionLabel("ALSO NEARBY") }
-                items(devices.drop(1).chunked(2), key = { it.first().address }) { pair ->
+            val featured = devices.firstOrNull { it.address == state.featuredAddress }
+            if (featured != null) item(key = "featured-${featured.address}") { FeaturedDevice(featured, state, repo) }
+            else item { SmallNote("No recent signal to feature. Previously seen addresses remain below.") }
+            val nearby = devices.filterNot { it.address == featured?.address }
+            if (nearby.isNotEmpty()) {
+                item { SectionLabel(if (featured == null) "ADDRESSES SEEN" else "ALSO NEARBY") }
+                items(nearby.chunked(2), key = { it.first().address }) { pair ->
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         pair.forEach { device -> Box(Modifier.weight(1f)) { CompactDevice(device, state, repo) } }
                         if (pair.size == 1) Spacer(Modifier.weight(1f))

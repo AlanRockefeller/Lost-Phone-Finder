@@ -61,7 +61,7 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
             item {
                 SignalGraph(samples, state.nowElapsed, state.settings.rssiMin, state.settings.rssiMax, Modifier.fillMaxWidth().height(120.dp), grid = true)
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("5 min ago", fontSize = 10.sp, color = FinderColors.neutral500)
+                    Text("60 s ago", fontSize = 10.sp, color = FinderColors.neutral500)
                     Text("now", fontSize = 10.sp, color = FinderColors.neutral500)
                 }
             }

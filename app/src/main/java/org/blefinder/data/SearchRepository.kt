@@ -9,11 +9,6 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
-// Graph samples stay in memory and never enter the stored observation or schema.
-const val SIGNAL_HISTORY_MS = 300_000L
-
-data class RssiSample(val elapsedMillis: Long, val rssi: Int, val smoothed: Double)
-
 data class SearchState(
     val ready: Boolean = false, val active: Boolean = false, val sessionId: String? = null,
     val simulated: Boolean = false, val devices: List<DeviceRecord> = emptyList(),
@@ -24,6 +19,7 @@ data class SearchState(
     val nowElapsed: Long = 0, val nowWall: Long = 0,
     val signalHistory: Map<String, List<RssiSample>> = emptyMap(),
     val sessionStartedElapsed: Long = 0, val hasSearched: Boolean = false,
+    val featuredAddress: String? = null,
 )
 // Mutable search state lives on one serial command consumer. UI snapshots are published at 5 Hz.
 class SearchRepository(val db: SearchDatabase, private val preferences: Preferences,
@@ -45,6 +41,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     private var current = SearchState()
     private val devices = linkedMapOf<String, DeviceRecord>()
     private val signalHistory = linkedMapOf<String, ArrayDeque<RssiSample>>()
+    private val strongestSelector = StrongestDeviceSelector()
     private var sessionStartedElapsed = 0L
     private var session: SessionEntity? = null
     private var targetOverride: SignalStats? = null
@@ -82,12 +79,15 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         return reply.await()
     }
     private fun publish() {
-        val cutoff = elapsedNow() - SIGNAL_HISTORY_MS
+        val now = elapsedNow()
+        val cutoff = now - SIGNAL_HISTORY_MS
         signalHistory.values.forEach { samples -> samples.removeAll { it.elapsedMillis < cutoff } }
         signalHistory.entries.removeAll { it.value.isEmpty() }
-        current = current.copy(devices = devices.values.toList(), targetStats = current.target?.let { targetOverride ?: devices[it]?.stats },
-            nowElapsed = elapsedNow(), nowWall = System.currentTimeMillis(),
-            signalHistory = signalHistory.mapValues { it.value.toList() }, sessionStartedElapsed = sessionStartedElapsed)
+        val history = signalHistory.mapValues { it.value.toList() }
+        val featured = strongestSelector.update(devices.values, current.mutes, history, now)
+        current = current.copy(featuredAddress = featured, devices = devices.values.toList(), targetStats = current.target?.let { targetOverride ?: devices[it]?.stats },
+            nowElapsed = now, nowWall = System.currentTimeMillis(),
+            signalHistory = history, sessionStartedElapsed = sessionStartedElapsed)
         mutable.value = current
     }
     private fun event(type: String, detail: String) { session?.let { db.dao().event(EventEntity(sessionId = it.id, timestamp = System.currentTimeMillis(), type = type, detail = detail)) } }
@@ -115,7 +115,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     private fun createSession(simulated: Boolean) {
         val s = SessionEntity(UUID.randomUUID().toString(), System.currentTimeMillis(), simulated = simulated, settingsJson = SearchJson.encodeToString(current.settings))
         sessionStartedElapsed = elapsedNow()
-        db.dao().putSession(s); session = s; devices.clear(); signalHistory.clear(); targetOverride = null
+        db.dao().putSession(s); session = s; devices.clear(); signalHistory.clear(); strongestSelector.reset(); targetOverride = null
         current = current.copy(sessionId = s.id, simulated = simulated, mutes = current.mutes.nextSession(), target = null,
             baseline = null, baselineReview = emptySet())
     }

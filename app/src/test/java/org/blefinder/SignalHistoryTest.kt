@@ -45,10 +45,10 @@ class SignalHistoryTest {
         val oldSnapshot = repo.state.value.signalHistory
         assertEquals(listOf(1_000L, 60_000L), oldSnapshot["A"]!!.map { it.elapsedMillis })
         assertEquals(-75.0, oldSnapshot["A"]!!.last().smoothed, .001)
-        now.set(301_001); publish()
+        now.set(61_001); publish()
         assertEquals(listOf(60_000L), repo.state.value.signalHistory["A"]!!.map { it.elapsedMillis })
         assertEquals(2, oldSnapshot["A"]!!.size)
-        now.set(360_001); publish()
+        now.set(120_001); publish()
         assertTrue(repo.state.value.signalHistory.isEmpty())
         assertEquals(2L, db.dao().count(repo.state.value.sessionId!!))
         assertEquals(2L, repo.state.value.devices.single().stats.count)
@@ -92,6 +92,26 @@ class SignalHistoryTest {
         repo.cycleSoundMode(); publish()
         assertFalse(repo.state.value.audioMuted)
         assertEquals(settings, repo.state.value.settings)
+    }
+
+    @Test fun publishedFeaturedAddressIsStableDespiteSortChangesAndResetsForMutesAndSessions() = runBlocking {
+        repo.receive(observation(-60, 60_000, "A")); repo.receive(observation(-61, 60_000, "B")); publish()
+        assertEquals("A", repo.state.value.featuredAddress)
+        now.set(61_000)
+        repo.receive(observation(-60, 61_000, "A")); repo.receive(observation(-54, 61_000, "B")); publish()
+        assertEquals("A", repo.state.value.featuredAddress)
+        assertEquals("B", org.blefinder.core.visibleDevices(repo.state.value.devices, org.blefinder.core.SortOrder.CURRENT, true, repo.state.value.mutes).first().address)
+        now.set(62_999)
+        repo.receive(observation(-60, 62_999, "A")); repo.receive(observation(-54, 62_999, "B")); publish()
+        assertEquals("A", repo.state.value.featuredAddress)
+        now.set(63_000)
+        repo.receive(observation(-54, 63_000, "B")); publish()
+        assertEquals("B", repo.state.value.featuredAddress)
+        repo.setMute("B"); publish()
+        assertEquals("A", repo.state.value.featuredAddress)
+        repo.restartSession(); publish()
+        assertNull(repo.state.value.featuredAddress)
+        assertTrue(repo.state.value.signalHistory.isEmpty())
     }
 
 }
