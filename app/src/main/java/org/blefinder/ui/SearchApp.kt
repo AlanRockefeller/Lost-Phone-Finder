@@ -241,7 +241,14 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
                     Text(address, fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp); Text("Mute: ${state.mutes.kind(address)}"); MuteButtons(address, state.mutes, repo)
                 } } }
             }
-            if (devices.isEmpty()) item { Text(if (state.active) "Listening for BLE advertisements… A phone must be advertising to appear." else "No scan results yet. Start a search outdoors or use debug simulation.", color = FinderColors.neutral400) }
+            if (devices.isEmpty()) item {
+                val message = when {
+                    state.active -> "Listening for BLE advertisements… A phone must be advertising to appear."
+                    DemoFactory.available -> "No scan results yet. Start a search outdoors or use debug simulation."
+                    else -> "No scan results yet. Start a search to look for nearby BLE devices."
+                }
+                Text(message, color = FinderColors.neutral400)
+            }
             if (search && devices.isNotEmpty()) {
                 val featured = devices.firstOrNull { it.address == state.featuredAddress }
                 if (featured != null) item(key = "featured-${featured.address}") { FeaturedDevice(featured, state, repo) }
