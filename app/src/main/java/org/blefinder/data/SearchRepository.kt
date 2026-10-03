@@ -307,6 +307,9 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
             ?.takeIf { address in it.addresses } else null
         SessionExporter(db).snapshot(id, address, candidate)
     }
+    suspend fun allExportSelection(): AllSessionsExporter.Selection = serial {
+        AllSessionsExporter.Selection(db.dao().storedSessions().map { it.id }, current.settings, current.mutes.persistent)
+    }
     suspend fun recent(address: String): List<Observation> = serial {
         session?.let { active ->
             val members = if (address == current.target) current.targetSeed?.let { identity.candidate(it).addresses } ?: setOf(address) else setOf(address)

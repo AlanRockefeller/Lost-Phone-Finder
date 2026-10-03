@@ -35,6 +35,7 @@ interface SearchDao {
     @Insert fun insertLocation(location: LocationEntity)
     @Insert fun event(event: EventEntity)
     @Query("SELECT * FROM sessions ORDER BY startedAt DESC") fun sessions(): Flow<List<SessionEntity>>
+    @Query("SELECT * FROM sessions ORDER BY startedAt DESC, id") fun storedSessions(): List<SessionEntity>
     @Query("SELECT * FROM sessions WHERE id = :id") fun session(id: String): SessionEntity?
     @Query("SELECT * FROM devices WHERE sessionId = :sessionId ORDER BY address") fun devices(sessionId: String): List<DeviceEntity>
     @Query("SELECT * FROM observations WHERE sessionId = :sessionId AND (:address IS NULL OR address = :address) AND id > :after AND id <= :through ORDER BY id LIMIT 500")
