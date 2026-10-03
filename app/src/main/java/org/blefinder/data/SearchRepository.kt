@@ -20,6 +20,10 @@ data class SearchState(
     val signalHistory: Map<String, List<RssiSample>> = emptyMap(),
     val sessionStartedElapsed: Long = 0, val hasSearched: Boolean = false,
     val featuredAddress: String? = null,
+    val targetSeed: String? = null, val targetCandidate: PhysicalDeviceCandidate? = null,
+    val identitySuggestions: List<IdentityRelationship> = emptyList(),
+    val targetAddressChange: TargetAddressChange? = null,
+    val targetHistory: List<RssiSample> = emptyList(),
 )
 // Mutable search state lives on one serial command consumer. UI snapshots are published at 5 Hz.
 class SearchRepository(val db: SearchDatabase, private val preferences: Preferences,
@@ -45,6 +49,8 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     private var sessionStartedElapsed = 0L
     private var session: SessionEntity? = null
     private var targetOverride: SignalStats? = null
+    private var identity = PhysicalIdentityEngine()
+    private val targetHistory = ArrayDeque<RssiSample>()
     private val initialized = CompletableDeferred<Unit>()
     var sound: ((Observation, Boolean, Settings) -> Unit)? = null
     var fatalError: (() -> Unit)? = null
@@ -52,6 +58,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         scope.launch(Dispatchers.IO) {
             try {
                 val (settings, persistent) = preferences.load()
+                Companies.size(); IeeeAssignments.warmUp()
                 db.dao().recoverInterrupted()
                 current = current.copy(ready = true, settings = settings, mutes = MuteRules(persistent = persistent))
                 publish(); initialized.complete(Unit)
@@ -83,9 +90,15 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         val cutoff = now - SIGNAL_HISTORY_MS
         signalHistory.values.forEach { samples -> samples.removeAll { it.elapsedMillis < cutoff } }
         signalHistory.entries.removeAll { it.value.isEmpty() }
+        targetHistory.removeAll { it.elapsedMillis < cutoff }
+        val candidate = current.targetSeed?.let(identity::candidate)
+        val suggestions = current.targetSeed?.let { seed ->
+            (candidate?.addresses.orEmpty() + seed).flatMap(identity::relationships).distinctBy { it.addresses }
+                .filter { relation -> relation.addresses.any { it !in candidate?.addresses.orEmpty() } || relation.contradictions.isNotEmpty() }
+        }.orEmpty()
         val history = signalHistory.mapValues { it.value.toList() }
         val featured = strongestSelector.update(devices.values, current.mutes, history, now)
-        current = current.copy(featuredAddress = featured, devices = devices.values.toList(), targetStats = current.target?.let { targetOverride ?: devices[it]?.stats },
+        current = current.copy(targetCandidate = candidate, identitySuggestions = suggestions, targetHistory = targetHistory.toList(), featuredAddress = featured, devices = devices.values.toList(), targetStats = current.target?.let { targetOverride ?: devices[it]?.stats },
             nowElapsed = now, nowWall = System.currentTimeMillis(),
             signalHistory = history, sessionStartedElapsed = sessionStartedElapsed)
         mutable.value = current
@@ -115,9 +128,10 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     private fun createSession(simulated: Boolean) {
         val s = SessionEntity(UUID.randomUUID().toString(), System.currentTimeMillis(), simulated = simulated, settingsJson = SearchJson.encodeToString(current.settings))
         sessionStartedElapsed = elapsedNow()
-        db.dao().putSession(s); session = s; devices.clear(); signalHistory.clear(); strongestSelector.reset(); targetOverride = null
+        db.dao().putSession(s); session = s; devices.clear(); signalHistory.clear(); strongestSelector.reset(); targetOverride = null; identity = PhysicalIdentityEngine(); targetHistory.clear()
         current = current.copy(sessionId = s.id, simulated = simulated, mutes = current.mutes.nextSession(), target = null,
-            baseline = null, baselineReview = emptySet())
+            baseline = null, baselineReview = emptySet(), targetSeed = null, targetCandidate = null,
+            identitySuggestions = emptyList(), targetAddressChange = null, targetHistory = emptyList())
     }
     suspend fun stop() = serial { stopSession() }
     private fun stopSession() {
@@ -185,8 +199,23 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         }
         // Baseline membership uses callback receipt time, so delayed controller timestamps are not misclassified.
         current = current.copy(baseline = current.baseline?.observe(observation.address, observation.receivedElapsedMillis))
-        val o = observation.copy(target = current.target == observation.address, mute = current.mutes.kind(observation.address),
-            location = observation.location.takeIf { current.settings.gps && !current.simulated })
+        val located = observation.copy(location = observation.location.takeIf { current.settings.gps && !current.simulated })
+        val identityAffected = identity.observe(located)
+        val seed = current.targetSeed
+        val activeTarget = current.target
+        if (seed != null && activeTarget != null) {
+            // A newly observed contradiction can revoke an association. Return to the selected seed.
+            if (activeTarget != seed && identityAffected.any { it in current.targetCandidate?.addresses.orEmpty() || it == seed || it == activeTarget } &&
+                activeTarget !in identity.candidate(seed).addresses) {
+                event("target_identity_revoked", "$activeTarget returned to seed $seed; identity evidence changed")
+                current = current.copy(target = seed, targetAddressChange = null)
+            }
+            identity.follow(seed, requireNotNull(current.target), located)?.let { change ->
+                current = current.copy(target = change.to, targetAddressChange = change)
+                event("target_address_changed", SearchJson.encodeToString(change))
+            }
+        }
+        val o = located.copy(target = current.target == observation.address, mute = current.mutes.kind(observation.address))
         val previous = devices[o.address]
         val stats = (previous?.stats ?: SignalStats()).add(o, current.settings.smoothing)
         val record = DeviceRecord(o.address, stats, o, o.advertisement.localName ?: o.deviceName ?: previous?.displayName,
@@ -206,12 +235,21 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
             val samples = signalHistory.getOrPut(o.address) { ArrayDeque() }
             samples.addLast(RssiSample(o.elapsedMillis, o.rssi, requireNotNull(stats.smoothed)))
         }
-        if (o.target && targetOverride != null) targetOverride = targetOverride!!.add(o, current.settings.smoothing)
+        if (o.target) {
+            targetOverride = (targetOverride ?: SignalStats()).add(o, current.settings.smoothing)
+            if (o.rssi in -127..126 && o.elapsedMillis >= elapsedNow() - SIGNAL_HISTORY_MS)
+                targetHistory.addLast(RssiSample(o.elapsedMillis, o.rssi, requireNotNull(targetOverride!!.smoothed)))
+        }
     }
     fun location(fix: GeoFix) = enqueue {
         if (current.settings.gps && !current.simulated && checkStorage()) session?.let { db.dao().insertLocation(LocationEntity(sessionId = it.id, json = SearchJson.encodeToString(fix))) }
     }
-    fun selectTarget(address: String?) = enqueue { current = current.copy(target = address); targetOverride = null; event("target", address ?: "scan mode"); publish() }
+    fun selectTarget(address: String?) = enqueue {
+        current = current.copy(target = address, targetSeed = address, targetAddressChange = null)
+        targetOverride = address?.let { devices[it]?.stats }
+        targetHistory.clear(); address?.let { targetHistory.addAll(signalHistory[it].orEmpty()) }
+        event("target", address ?: "scan mode"); publish()
+    }
     fun clearTargetStats() = enqueue { targetOverride = SignalStats(); event("reset_target_statistics", current.target ?: "none"); publish() }
     fun audioMute() = enqueue { current = current.copy(audioMuted = !current.audioMuted); publish() }
     fun cycleSoundMode() = enqueue {
@@ -234,7 +272,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     fun beginBaseline() = enqueue {
         if (!current.active) return@enqueue
         val now = elapsedNow()
-        current = current.copy(target = null, baseline = Baseline(now, now + current.settings.baselineSeconds * 1000L), baselineReview = emptySet())
+        current = current.copy(target = null, targetSeed = null, targetAddressChange = null, baseline = Baseline(now, now + current.settings.baselineSeconds * 1000L), baselineReview = emptySet())
         event("baseline_started", "${current.settings.baselineSeconds} seconds; session mutes only"); publish()
     }
     fun cancelBaseline() = enqueue { current = current.copy(baseline = null); event("baseline_cancelled", "No new mutes applied"); publish() }
@@ -250,8 +288,16 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         current = current.copy(settings = valid); event("settings", SearchJson.encodeToString(valid)); publish()
     }
     fun reportError(message: String) = enqueue { current = current.copy(error = message); publish() }
-    suspend fun exportSnapshot(id: String, address: String?): SessionExporter.Snapshot = serial { SessionExporter(db).snapshot(id, address) }
+    suspend fun exportSnapshot(id: String, address: String?): SessionExporter.Snapshot = serial {
+        val candidate = if (id == current.sessionId && address != null) current.targetSeed?.let(identity::candidate)
+            ?.takeIf { address in it.addresses } else null
+        SessionExporter(db).snapshot(id, address, candidate)
+    }
     suspend fun recent(address: String): List<Observation> = serial {
-        session?.let { db.dao().recent(it.id, address).map { row -> SearchJson.decodeFromString<Observation>(row.json) } } ?: emptyList()
+        session?.let { active ->
+            val members = if (address == current.target) current.targetSeed?.let { identity.candidate(it).addresses } ?: setOf(address) else setOf(address)
+            members.flatMap { member -> db.dao().recent(active.id, member).map { row -> SearchJson.decodeFromString<Observation>(row.json) } }
+                .sortedByDescending { it.elapsedMillis }.take(50)
+        } ?: emptyList()
     }
 }

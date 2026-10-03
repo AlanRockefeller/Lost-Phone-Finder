@@ -260,7 +260,7 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
                 packetBuckets(devices).forEachIndexed { i, bucket ->
                     item(key = "profile-${bucket.key}") {
                         Text("${bucket.label} · ${bucket.devices.size} addresses", fontSize = 12.sp, color = FinderColors.accent)
-                        if (i == 0) SmallNote("Buckets share manufacturer / service data format. They may contain multiple physical devices. Addresses remain separate for tracking and muting.")
+                        if (i == 0) SmallNote("Buckets share manufacturer / service data format. They may contain multiple physical devices. Buckets are not identity candidates. Address-specific mutes remain separate.")
                     }
                     items(bucket.devices, key = { it.address }) { DeviceCard(it, state, repo, menuChange) }
                 }

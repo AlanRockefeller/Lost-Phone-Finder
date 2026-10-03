@@ -98,7 +98,7 @@ data class SignalStats(
 @Serializable
 data class DeviceRecord(val address: String, val stats: SignalStats, val latest: Observation,
     val displayName: String? = null, val company: String? = null,
-    // Reserved link for future explicitly reviewed grouping. Never inferred from MAC bits.
+    // Legacy export field kept for compatibility. Inferred candidates live separately.
     val probablePhysicalDeviceId: String? = null)
 
 enum class SortOrder(val label: String) {

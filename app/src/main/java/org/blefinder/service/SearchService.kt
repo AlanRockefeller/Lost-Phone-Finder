@@ -72,7 +72,7 @@ class SearchService : Service() {
                         repo.reportError(it); end()
                     }
                     scope.launch {
-                        repo.state.map { Triple(it.audioMuted, it.target, it.mutes) }.distinctUntilChanged().collect {
+                        repo.state.map { Triple(it.audioMuted, it.targetSeed, it.mutes) }.distinctUntilChanged().collect {
                             audio?.silence(true); audio?.silence(it.first)
                         }
                     }

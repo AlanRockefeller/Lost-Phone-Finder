@@ -39,6 +39,8 @@ interface SearchDao {
     @Query("SELECT * FROM devices WHERE sessionId = :sessionId ORDER BY address") fun devices(sessionId: String): List<DeviceEntity>
     @Query("SELECT * FROM observations WHERE sessionId = :sessionId AND (:address IS NULL OR address = :address) AND id > :after AND id <= :through ORDER BY id LIMIT 500")
     fun page(sessionId: String, address: String?, after: Long, through: Long): List<ObservationEntity>
+    @Query("SELECT * FROM observations WHERE sessionId = :sessionId AND address IN (:addresses) AND id > :after AND id <= :through ORDER BY id LIMIT 500")
+    fun addressPage(sessionId: String, addresses: Set<String>, after: Long, through: Long): List<ObservationEntity>
     @Query("SELECT COALESCE(MAX(id), 0) FROM observations WHERE sessionId = :sessionId") fun maxId(sessionId: String): Long
     @Query("SELECT COUNT(*) FROM observations WHERE sessionId = :sessionId") fun count(sessionId: String): Long
     @Query("SELECT * FROM locations WHERE sessionId = :sessionId AND id > :after AND id <= :through ORDER BY id LIMIT 500")

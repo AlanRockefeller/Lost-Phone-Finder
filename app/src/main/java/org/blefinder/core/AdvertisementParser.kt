@@ -7,14 +7,6 @@ import java.nio.ByteOrder
 fun ByteArray.hex(): String = joinToString("") { "%02X".format(it.toInt() and 255) }
 fun String.hexBytes(): ByteArray = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
-object Companies {
-    // A deliberately small, offline Bluetooth SIG company identifier subset, not a MAC OUI lookup.
-    private val names = mapOf(0x0006 to "Microsoft", 0x000F to "Broadcom", 0x004C to "Apple",
-        0x0059 to "Nordic Semiconductor", 0x0075 to "Samsung Electronics", 0x00E0 to "Google",
-        0x0131 to "Cypress Semiconductor", 0x0157 to "Anhui Huami", 0x0171 to "Amazon")
-    fun name(id: Int): String? = names[id]
-}
-
 object AdvertisementParser {
     fun parse(bytes: ByteArray): Advertisement {
         val ads = mutableListOf<AdStructure>(); val manufacturers = mutableListOf<ManufacturerData>()
