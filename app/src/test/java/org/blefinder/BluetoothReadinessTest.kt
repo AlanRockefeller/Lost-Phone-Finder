@@ -116,6 +116,61 @@ class BluetoothReadinessTest {
         }
     }
 
+    @Test fun gpsCanBeToggledWithoutRestartingTheSearch() = runBlocking {
+        org.blefinder.data.Preferences(app).settings(org.blefinder.core.Settings())
+        org.robolectric.shadows.ShadowStatFs.registerStats(
+            app.getDatabasePath("ble-search.db").parentFile!!.absolutePath, 1_000_000, 900_000, 900_000)
+        shadowOf(app.getSystemService(BluetoothManager::class.java).adapter).setEnabled(true)
+        val location = shadowOf(app.getSystemService(android.location.LocationManager::class.java))
+        val provider = android.location.LocationManager.GPS_PROVIDER
+        location.setLocationEnabled(true)
+        location.setProviderEnabled(provider, true)
+        val controller = Robolectric.buildService(SearchService::class.java).create()
+        suspend fun awaitGps(enabled: Boolean) {
+            withTimeout(5000) {
+                while (location.getLocationRequests(provider).isNotEmpty() != enabled) {
+                    shadowOf(android.os.Looper.getMainLooper()).idle()
+                    delay(1)
+                }
+            }
+        }
+        try {
+            controller.startCommand(0, 1)
+            withTimeout(5000) {
+                while (!app.repository.state.value.active) {
+                    shadowOf(android.os.Looper.getMainLooper()).idle()
+                    delay(1)
+                }
+            }
+            val id = app.repository.state.value.sessionId!!
+            assertTrue(location.getLocationRequests(provider).isEmpty())
+            app.repository.updateSettings(app.repository.state.value.settings.copy(gps = true))
+            awaitGps(true)
+            val fix = android.location.Location(provider).apply {
+                latitude = 1.0; longitude = 2.0; accuracy = 3f
+                time = 1000; elapsedRealtimeNanos = 1_000_000_000
+            }
+            location.simulateLocation(fix)
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            app.repository.exportSnapshot(id, null)
+            withContext(Dispatchers.IO) { assertEquals(1, app.database.dao().locations(id, 0, Long.MAX_VALUE).size) }
+            app.repository.updateSettings(app.repository.state.value.settings.copy(gps = false))
+            awaitGps(false)
+            location.simulateLocation(fix)
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            app.repository.exportSnapshot(id, null)
+            withContext(Dispatchers.IO) { assertEquals(1, app.database.dao().locations(id, 0, Long.MAX_VALUE).size) }
+            assertEquals(id, app.repository.state.value.sessionId)
+            assertTrue(app.repository.state.value.active)
+            assertFalse(shadowOf(controller.get()).isStoppedBySelf)
+            app.repository.updateSettings(app.repository.state.value.settings.copy(gps = true))
+            awaitGps(true)
+            controller.get().onStartCommand(Intent(app, SearchService::class.java).setAction(SearchService.STOP), 0, 2)
+            awaitStopped(controller.get())
+            assertTrue(location.getLocationRequests(provider).isEmpty())
+        } finally { controller.destroy() }
+    }
+
     @Test fun recordingsAreBundledAndContainWholeOfflineClips() {
         val recordings = org.blefinder.audio.loadDiscoveryRecordings(app)
         assertEquals(setOf(org.blefinder.core.DiscoverySound.TUGBOAT, org.blefinder.core.DiscoverySound.OROPENDOLA), recordings.keys)

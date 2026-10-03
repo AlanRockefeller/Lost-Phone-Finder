@@ -185,7 +185,8 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         }
         // Baseline membership uses callback receipt time, so delayed controller timestamps are not misclassified.
         current = current.copy(baseline = current.baseline?.observe(observation.address, observation.receivedElapsedMillis))
-        val o = observation.copy(target = current.target == observation.address, mute = current.mutes.kind(observation.address))
+        val o = observation.copy(target = current.target == observation.address, mute = current.mutes.kind(observation.address),
+            location = observation.location.takeIf { current.settings.gps && !current.simulated })
         val previous = devices[o.address]
         val stats = (previous?.stats ?: SignalStats()).add(o, current.settings.smoothing)
         val record = DeviceRecord(o.address, stats, o, o.advertisement.localName ?: o.deviceName ?: previous?.displayName,
@@ -208,7 +209,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         if (o.target && targetOverride != null) targetOverride = targetOverride!!.add(o, current.settings.smoothing)
     }
     fun location(fix: GeoFix) = enqueue {
-        if (checkStorage()) session?.let { db.dao().insertLocation(LocationEntity(sessionId = it.id, json = SearchJson.encodeToString(fix))) }
+        if (current.settings.gps && !current.simulated && checkStorage()) session?.let { db.dao().insertLocation(LocationEntity(sessionId = it.id, json = SearchJson.encodeToString(fix))) }
     }
     fun selectTarget(address: String?) = enqueue { current = current.copy(target = address); targetOverride = null; event("target", address ?: "scan mode"); publish() }
     fun clearTargetStats() = enqueue { targetOverride = SignalStats(); event("reset_target_statistics", current.target ?: "none"); publish() }
