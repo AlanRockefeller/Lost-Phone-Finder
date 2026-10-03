@@ -2,6 +2,15 @@
 
 Lost Phone Finder is a free app that helps you locate a lost device by picking up bluetooth (BLE) signals.  It is designed to be used to find a phone lost in the woods - probably wouldn't be very useful in a city since there will be a lot of bluetooth signals around.
 
+**[Download Android app](https://github.com/AlanRockefeller/Lost-Phone-Finder/releases)** (Android 8.0 or newer)
+
+1. Open the link on your Android phone and choose a release.
+2. Under **Assets**, download `app-release.apk`. The source-code ZIP and TAR files are not installable apps.
+3. Open the downloaded APK. If prompted, open **Settings** and enable **Allow from this source** for your browser or file manager, then return and tap **Install**.
+4. Open Lost Phone Finder, enable Bluetooth, and grant the permissions requested when starting a search.
+
+If no APK appears under **Assets**, a downloadable build has not been published yet.
+
 A lost phone must be powered and advertising BLE to appear (iPhone 11+ and Pixel 8+ can transmit for a few hours after the battery runs down). This is not a Find My / Find Hub client. Scan results received are **not** every packet transmitted over the air due to hardware limitations.
 
 Uses Kotlin, Jetpack Compose, generated per-result audio, target tracking, baseline muting, local sessions, optional GPS and JSON/CSV export. No account, network permission, telemetry or backend.
