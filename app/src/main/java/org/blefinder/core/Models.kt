@@ -9,7 +9,7 @@ val SearchJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 enum class DiscoverySound(val label: String, val asset: String?) {
     TWO_NOTE("Two-note chime", null),
     TUGBOAT("Tugboat horn", "sounds/tugboat.pcm"),
-    OROPENDOLA("Oropendola calls", "sounds/oropendola.pcm")
+    OROPENDOLA("Oropendola bloop", "sounds/oropendola.pcm")
 }
 
 @Serializable

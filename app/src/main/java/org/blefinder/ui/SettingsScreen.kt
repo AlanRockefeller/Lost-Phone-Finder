@@ -232,10 +232,11 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
 
 @Composable private fun RecordingCredits() {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SmallNote("Tugboat horn: a steam whistle recorded on Nixe by Work With Sounds / Konrad Gutkowski with Jonathan Nicolai. Oropendola calls: Richard Ranft, copyright The British Library Board. Both are shortened, filtered and normalized excerpts.")
+        SmallNote("Tugboat horn: a steam whistle recorded on Nixe by Work With Sounds / Konrad Gutkowski with Jonathan Nicolai. Oropendola bloop: a real Montezuma oropendola recorded by Félix Blume in Veracruz, Mexico. Both are shortened, filtered and normalized excerpts.")
         CreditLink("Tugboat recording", "https://commons.wikimedia.org/wiki/File:WWS_Steamwhistle.ogg")
-        CreditLink("Oropendola recording", "https://commons.wikimedia.org/wiki/File:Montezuma_Oropendola_(Psarocolius_montezuma)_(W_PSAROCOLIUS_MONTEZUMA_R1_C4).ogg")
-        CreditLink("Recording license: CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/")
+        CreditLink("Oropendola recording", "https://freesound.org/people/felix.blume/sounds/512109/")
+        CreditLink("Tugboat license: CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/")
+        CreditLink("Oropendola dedication: CC0 1.0", "https://creativecommons.org/publicdomain/zero/1.0/")
     }
 }
 
