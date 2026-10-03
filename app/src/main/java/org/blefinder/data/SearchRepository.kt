@@ -24,6 +24,8 @@ data class SearchState(
     val identitySuggestions: List<IdentityRelationship> = emptyList(),
     val targetAddressChange: TargetAddressChange? = null,
     val targetHistory: List<RssiSample> = emptyList(),
+    val gpsGeneration: Long = 0,
+    val targetIdentityNotice: String? = null,
 )
 // Mutable search state lives on one serial command consumer. UI snapshots are published at 5 Hz.
 class SearchRepository(val db: SearchDatabase, private val preferences: Preferences,
@@ -51,6 +53,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     private var targetOverride: SignalStats? = null
     private var identity = PhysicalIdentityEngine()
     private val targetHistory = ArrayDeque<RssiSample>()
+    private var targetMembers: Set<String> = emptySet()
     private val initialized = CompletableDeferred<Unit>()
     var sound: ((Observation, Boolean, Settings) -> Unit)? = null
     var fatalError: (() -> Unit)? = null
@@ -128,10 +131,10 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     private fun createSession(simulated: Boolean) {
         val s = SessionEntity(UUID.randomUUID().toString(), System.currentTimeMillis(), simulated = simulated, settingsJson = SearchJson.encodeToString(current.settings))
         sessionStartedElapsed = elapsedNow()
-        db.dao().putSession(s); session = s; devices.clear(); signalHistory.clear(); strongestSelector.reset(); targetOverride = null; identity = PhysicalIdentityEngine(); targetHistory.clear()
+        db.dao().putSession(s); session = s; devices.clear(); signalHistory.clear(); strongestSelector.reset(); targetOverride = null; identity = PhysicalIdentityEngine(); targetHistory.clear(); targetMembers = emptySet()
         current = current.copy(sessionId = s.id, simulated = simulated, mutes = current.mutes.nextSession(), target = null,
             baseline = null, baselineReview = emptySet(), targetSeed = null, targetCandidate = null,
-            identitySuggestions = emptyList(), targetAddressChange = null, targetHistory = emptyList())
+            identitySuggestions = emptyList(), targetAddressChange = null, targetHistory = emptyList(), targetIdentityNotice = null)
     }
     suspend fun stop() = serial { stopSession() }
     private fun stopSession() {
@@ -174,7 +177,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         }
         event("new_session", "Previous session retained in Sessions"); publish()
     }
-    fun receive(observation: Observation) {
+    fun receive(observation: Observation, gpsGeneration: Long = state.value.gpsGeneration) {
         if (!acceptingResults) return
         if (pendingResults.incrementAndGet() > limits.maxPendingResults) {
             pendingResults.decrementAndGet()
@@ -187,11 +190,11 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
             return
         }
         enqueue {
-            try { storeObservation(observation) }
+            try { storeObservation(observation, gpsGeneration) }
             finally { pendingResults.decrementAndGet() }
         }
     }
-    private fun storeObservation(observation: Observation) {
+    private fun storeObservation(observation: Observation, gpsGeneration: Long) {
         if (!checkStorage()) return
         if (observation.address !in devices && devices.size >= limits.maxSessionAddresses) {
             stopForLimit("Session address limit reached (${limits.maxSessionAddresses}).")
@@ -199,14 +202,22 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         }
         // Baseline membership uses callback receipt time, so delayed controller timestamps are not misclassified.
         current = current.copy(baseline = current.baseline?.observe(observation.address, observation.receivedElapsedMillis))
-        val located = observation.copy(location = observation.location.takeIf { current.settings.gps && !current.simulated })
-        val identityAffected = identity.observe(located)
+        val located = observation.copy(location = observation.location.takeIf { current.settings.gps && !current.simulated && gpsGeneration == current.gpsGeneration })
+        identity.observe(located)
         val seed = current.targetSeed
         val activeTarget = current.target
         if (seed != null && activeTarget != null) {
+            val members = identity.candidate(seed).addresses
+            if (targetMembers.any { it !in members }) {
+                // Aggregate smoothing cannot subtract a rejected address. Restart the bounded target view.
+                targetOverride = SignalStats()
+                targetHistory.clear()
+                current = current.copy(targetIdentityNotice = "Identity association changed. Target graph and statistics restarted; saved address observations are preserved.")
+                event("target_statistics_restarted", "Identity membership changed from ${targetMembers.sorted()} to ${members.sorted()}; raw observations retained")
+            }
+            targetMembers = members
             // A newly observed contradiction can revoke an association. Return to the selected seed.
-            if (activeTarget != seed && identityAffected.any { it in current.targetCandidate?.addresses.orEmpty() || it == seed || it == activeTarget } &&
-                activeTarget !in identity.candidate(seed).addresses) {
+            if (activeTarget !in members) {
                 event("target_identity_revoked", "$activeTarget returned to seed $seed; identity evidence changed")
                 current = current.copy(target = seed, targetAddressChange = null)
             }
@@ -241,11 +252,12 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
                 targetHistory.addLast(RssiSample(o.elapsedMillis, o.rssi, requireNotNull(targetOverride!!.smoothed)))
         }
     }
-    fun location(fix: GeoFix) = enqueue {
-        if (current.settings.gps && !current.simulated && checkStorage()) session?.let { db.dao().insertLocation(LocationEntity(sessionId = it.id, json = SearchJson.encodeToString(fix))) }
+    fun location(fix: GeoFix, gpsGeneration: Long = state.value.gpsGeneration) = enqueue {
+        if (current.settings.gps && !current.simulated && gpsGeneration == current.gpsGeneration && checkStorage()) session?.let { db.dao().insertLocation(LocationEntity(sessionId = it.id, json = SearchJson.encodeToString(fix))) }
     }
     fun selectTarget(address: String?) = enqueue {
-        current = current.copy(target = address, targetSeed = address, targetAddressChange = null)
+        current = current.copy(target = address, targetSeed = address, targetAddressChange = null, targetIdentityNotice = null)
+        targetMembers = address?.let { identity.candidate(it).addresses }.orEmpty()
         targetOverride = address?.let { devices[it]?.stats }
         targetHistory.clear(); address?.let { targetHistory.addAll(signalHistory[it].orEmpty()) }
         event("target", address ?: "scan mode"); publish()
@@ -285,7 +297,9 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     }
     fun updateSettings(settings: Settings) = enqueue {
         val valid = settings.validated(); preferences.settings(valid)
-        current = current.copy(settings = valid); event("settings", SearchJson.encodeToString(valid)); publish()
+        // A generation survives StateFlow conflation, including a rapid off/on toggle.
+        val generation = current.gpsGeneration + if (valid.gps != current.settings.gps) 1 else 0
+        current = current.copy(settings = valid, gpsGeneration = generation); event("settings", SearchJson.encodeToString(valid)); publish()
     }
     fun reportError(message: String) = enqueue { current = current.copy(error = message); publish() }
     suspend fun exportSnapshot(id: String, address: String?): SessionExporter.Snapshot = serial {

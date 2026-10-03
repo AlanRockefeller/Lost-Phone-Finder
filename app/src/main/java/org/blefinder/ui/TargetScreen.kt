@@ -49,6 +49,7 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
         SearchBanners(state, status, dismissStatus)
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
+                state.targetIdentityNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 state.targetAddressChange?.let { change ->
                     FinderCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {

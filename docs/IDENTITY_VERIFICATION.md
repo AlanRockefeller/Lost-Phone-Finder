@@ -32,3 +32,16 @@ APK SHA-256 values for this verification:
 | Release | `3d26c5c5c6a5a05b427e97afee2af7358f0ff0afe1908435c6a0a6d139f8e745` |
 
 No physical Android device was used. These checks do not establish Samsung radio/address rotation behavior, OEM screen-off delivery, real GPS accuracy, on-device rendering, audio continuity or sustained radio-load performance. Use the S24 procedure in [physical identity](PHYSICAL_IDENTITY.md#samsung-galaxy-s24-field-check), including a second simultaneous advertiser and a no-GPS repeat. The crowd regression checks bounded comparison counts, not Android throughput.
+
+## PR #4 review fixes
+
+The follow-up checks passed with 139 tests in each variant, no failures, errors or skips. Regression coverage now includes rapid GPS off/on without main-loop collection, rejection of old-generation GPS callbacks and observation coordinates, clearing rejected contributions from Target statistics and graphs, and revocation after Target has already returned to its seed. Previously saved observations and per-address statistics remain intact.
+
+Both variants passed lint and APK assembly. Lint still reports only the seven existing warnings listed above. Both APK runtime audits passed with 67 resolved artifacts and all 12,137 dependency classes present. Both APK signatures verify with the same existing certificate SHA-256 `29235354f935b7dbd62093be213712dec8b426e914fa4ed1134ee3bfa6d4d886`. The standalone core suite passed all 78 tests using JDK 21 through the runner's `--java` option. No Room schema or signing configuration changed.
+
+APK SHA-256 after these fixes:
+
+- Debug: `df479c87225f226ef249539c1ac7431a68e8a9b45b6e0d9e43ff6d8b24456ecb`
+- Release: `7c208ac4c8c2fb387890b38495b10aa9497e2f412a080f4a882918eb24195801`
+
+Robolectric verified the service lifecycle and GPS request behavior. Rapid toggles, fresh GPS acquisition and identity revocation still need a real-phone field check. To check GPS, obtain a fix during an active real search, toggle GPS off and on quickly, and verify new observations have no coordinates until a new fix arrives. To check revocation, first cause a high-confidence handoff between two test advertisers, then advertise both simultaneously until the association is rejected. Confirm Target returns to its seed, shows the statistics restart notice, and retains both addresses in the raw session export.

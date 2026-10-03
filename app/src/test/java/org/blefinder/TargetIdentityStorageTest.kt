@@ -76,6 +76,7 @@ class TargetIdentityStorageTest {
             repeat(4) { repo.receive(identityObservation(ID_B, 6000 + it * 1000L)) }
             now = 9000; repo.tick(now); repo.exportSnapshot(id, null)
             assertEquals(ID_B, repo.state.value.target)
+            assertEquals(5L, repo.state.value.targetStats!!.count)
             repeat(4) { i ->
                 repo.receive(identityObservation(ID_A, 10000 + i * 1000L))
                 repo.receive(identityObservation(ID_B, 10100 + i * 1000L))
@@ -85,9 +86,50 @@ class TargetIdentityStorageTest {
             assertEquals(setOf(ID_A), repo.state.value.targetCandidate!!.addresses)
             assertTrue(repo.state.value.identitySuggestions.any { it.contradictions.any { reason -> reason.contains("simultaneous") } })
             assertTrue(db.dao().events(id, Long.MAX_VALUE).any { it.type == "target_identity_revoked" })
+            val state = repo.state.value
+            assertEquals(1L, state.targetStats!!.count)
+            assertEquals(listOf(13000L), state.targetHistory.map { it.elapsedMillis })
+            assertTrue(state.targetIdentityNotice!!.contains("restarted"))
+            assertTrue(db.dao().events(id, Long.MAX_VALUE).any { it.type == "target_statistics_restarted" })
+            assertEquals(20L, db.dao().count(id))
+            repo.selectTarget(ID_A); repo.exportSnapshot(id, null)
+            assertNull(repo.state.value.targetIdentityNotice)
+            assertEquals(8L, repo.state.value.targetStats!!.count)
+        } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
+    }
+    @Test fun rejectingPreviousAddressRestartsAggregateEvenWhenAlreadyFollowingSeed() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        Preferences(context).settings(Settings()); Preferences(context).mutes(emptySet())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var now = 0L
+        val repo = SearchRepository(db, Preferences(context), scope, elapsedNow = { now })
+        try {
+            repo.start(false); val id = repo.state.value.sessionId!!
+            repeat(4) { repo.receive(identityObservation(ID_A, it * 1000L)) }
+            repo.selectTarget(ID_A); repo.exportSnapshot(id, null)
+            repeat(4) { repo.receive(identityObservation(ID_B, 6000 + it * 1000L)) }
+            repo.tick(9000); repo.exportSnapshot(id, null)
+            assertEquals(ID_B, repo.state.value.target)
+            repeat(4) { repo.receive(identityObservation(ID_A, 14000 + it * 1000L)) }
+            repo.tick(17000); repo.exportSnapshot(id, null)
+            assertEquals(ID_A, repo.state.value.target)
+            assertEquals(setOf(ID_A, ID_B), repo.state.value.targetCandidate!!.addresses)
+            assertNull(repo.state.value.targetIdentityNotice)
+            repeat(4) { i ->
+                repo.receive(identityObservation(ID_A, 18000 + i * 1000L))
+                repo.receive(identityObservation(ID_B, 18100 + i * 1000L))
+            }
+            now = 22000; repo.tick(now); repo.exportSnapshot(id, null)
+            val state = repo.state.value
+            assertEquals(ID_A, state.target)
+            assertEquals(setOf(ID_A), state.targetCandidate!!.addresses)
+            assertNotNull(state.targetIdentityNotice)
+            assertEquals(1L, state.targetStats!!.count)
+            assertEquals(listOf(21000L), state.targetHistory.map { it.elapsedMillis })
             assertEquals(20L, db.dao().count(id))
         } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
     }
+
     @Test fun versionOneRecordsRemainReadableAndPagedReconstructionPreservesRows() {
         val session = SessionEntity("old", 0, settingsJson = "{}")
         db.dao().putSession(session)

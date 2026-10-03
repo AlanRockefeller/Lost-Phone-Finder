@@ -18,6 +18,7 @@ class SearchService : Service() {
     private var source: BleSource? = null
     private var audio: ChirpEngine? = null
     private var gps: LocationLogger? = null
+    private var gpsGeneration: Long = -1
     private var starting = false
     private var stopping = false
     private var awaitingFinalization = false
@@ -67,7 +68,9 @@ class SearchService : Service() {
                     audio = ChirpEngine(this@SearchService) { repo.reportError(it) }
                     audio?.configure(repo.state.value.settings)
                     repo.sound = { observation, new, settings -> audio?.offer(observation, new, settings) }
-                    val receive: (org.blefinder.core.Observation) -> Unit = { o -> repo.receive(o.copy(location = gps?.recent(o.elapsedMillis))) }
+                    val receive: (org.blefinder.core.Observation) -> Unit = { o ->
+                        repo.receive(o.copy(location = recentLocation(o.elapsedMillis)), gpsGeneration)
+                    }
                     source = if (simulated) DemoFactory.create(scope, receive) else AndroidBleSource(this@SearchService, receive) {
                         repo.reportError(it); end()
                     }
@@ -77,9 +80,9 @@ class SearchService : Service() {
                         }
                     }
                     scope.launch {
-                        repo.state.map { it.settings }.distinctUntilChanged().collect {
-                            audio?.configure(it)
-                            updateGps(it.gps)
+                        repo.state.map { it.settings to it.gpsGeneration }.distinctUntilChanged().collect { (settings, generation) ->
+                            audio?.configure(settings)
+                            updateGps(settings.gps, generation)
                         }
                     }
                     source!!.start()
@@ -100,13 +103,22 @@ class SearchService : Service() {
         }
         return START_NOT_STICKY
     }
-    private fun updateGps(enabled: Boolean) {
+    internal fun recentLocation(atElapsedMillis: Long): org.blefinder.core.GeoFix? {
+        val state = repo.state.value
+        return if (state.settings.gps && state.gpsGeneration == gpsGeneration) gps?.recent(atElapsedMillis) else null
+    }
+    private fun updateGps(enabled: Boolean, generation: Long) {
         if (stopping) return
+        if (gpsGeneration != generation) {
+            val previous = gps; gps = null
+            runCatching { previous?.stop() }
+            gpsGeneration = generation
+        }
         if (!enabled || simulated) {
             val previous = gps; gps = null
             runCatching { previous?.stop() }
         } else if (gps == null) {
-            val logger = LocationLogger(this, repo::location)
+            val logger = LocationLogger(this) { fix -> repo.location(fix, generation) }
             try {
                 logger.start()
                 gps = logger

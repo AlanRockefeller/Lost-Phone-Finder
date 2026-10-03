@@ -154,12 +154,29 @@ class BluetoothReadinessTest {
             shadowOf(android.os.Looper.getMainLooper()).idle()
             app.repository.exportSnapshot(id, null)
             withContext(Dispatchers.IO) { assertEquals(1, app.database.dao().locations(id, 0, Long.MAX_VALUE).size) }
+            assertNotNull(controller.get().recentLocation(1000))
+            val generation = app.repository.state.value.gpsGeneration
+            app.repository.updateSettings(app.repository.state.value.settings.copy(gps = false))
+            app.repository.updateSettings(app.repository.state.value.settings.copy(gps = true))
+            // Flush repository commands without running the main-loop settings collector.
+            app.repository.exportSnapshot(id, null)
+            assertEquals(generation + 2, app.repository.state.value.gpsGeneration)
+            assertNull(controller.get().recentLocation(1000))
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            awaitGps(true)
+            // Re-enabling requests fresh updates instead of reusing the pre-disable fix.
+            assertNull(controller.get().recentLocation(1000))
+            location.simulateLocation(fix)
+            shadowOf(android.os.Looper.getMainLooper()).idle()
+            app.repository.exportSnapshot(id, null)
+            assertNotNull(controller.get().recentLocation(1000))
+            withContext(Dispatchers.IO) { assertEquals(2, app.database.dao().locations(id, 0, Long.MAX_VALUE).size) }
             app.repository.updateSettings(app.repository.state.value.settings.copy(gps = false))
             awaitGps(false)
             location.simulateLocation(fix)
             shadowOf(android.os.Looper.getMainLooper()).idle()
             app.repository.exportSnapshot(id, null)
-            withContext(Dispatchers.IO) { assertEquals(1, app.database.dao().locations(id, 0, Long.MAX_VALUE).size) }
+            withContext(Dispatchers.IO) { assertEquals(2, app.database.dao().locations(id, 0, Long.MAX_VALUE).size) }
             assertEquals(id, app.repository.state.value.sessionId)
             assertTrue(app.repository.state.value.active)
             assertFalse(shadowOf(controller.get()).isStoppedBySelf)
