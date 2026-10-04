@@ -186,6 +186,55 @@ class StorageTest {
         } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
     }
 
+    @Test fun sparseStandaloneGpsPreservesEveryAttachedBleFixAndExport() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        Preferences(context).settings(Settings(gps = true)); Preferences(context).mutes(emptySet())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repo = SearchRepository(db, Preferences(context), scope)
+        val fixes = (0L..120).map { GeoFix(1.0 + it * .001, 2.0, 3f, 1000 + it * 1000, it * 1_000_000_000) }
+        try {
+            repo.start(false); val id = repo.state.value.sessionId!!
+            fixes.forEachIndexed { i, fix ->
+                repo.location(fix)
+                repo.receive(observation(at = i * 1000L, address = "A").copy(location = fix))
+            }
+            val snapshot = repo.exportSnapshot(id, null)
+            val saved = db.dao().page(id, null, 0, Long.MAX_VALUE).map { SearchJson.decodeFromString<Observation>(it.json) }
+            assertEquals(fixes, saved.map { it.location })
+            assertEquals(listOf(fixes[0], fixes[60], fixes[120]), db.dao().locations(id, 0, Long.MAX_VALUE)
+                .map { SearchJson.decodeFromString<GeoFix>(it.json) })
+            val json = Json.parseToJsonElement(StringWriter().also { SessionExporter(db).write(snapshot, true, it) }.toString()).jsonObject
+            assertEquals(121, json["observations"]!!.jsonArray.size)
+            assertEquals(3, json["gpsObservations"]!!.jsonArray.size)
+            assertTrue(snapshot.events.any { it.type == "gps_sampling" && it.detail.contains("60000") })
+        } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
+    }
+
+    @Test fun silentScanHasSparseGpsAndEachStartAndNewSessionRetainsItsFirstFix() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        Preferences(context).settings(Settings(gps = true))
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repo = SearchRepository(db, Preferences(context), scope)
+        fun fix(seconds: Long) = GeoFix(1.0, 2.0, 3f, seconds * 1000, seconds * 1_000_000_000)
+        try {
+            repo.start(false); val id = repo.state.value.sessionId!!
+            (0L..120).forEach { repo.location(fix(it)) }
+            repo.stop()
+            repo.location(fix(180))
+            repo.exportSnapshot(id, null)
+            assertEquals(0L, db.dao().count(id))
+            assertEquals(3, db.dao().locations(id, 0, Long.MAX_VALUE).size)
+            repo.start(false); repo.location(fix(121)); repo.exportSnapshot(id, null)
+            assertEquals(4, db.dao().locations(id, 0, Long.MAX_VALUE).size)
+            repo.restartSession(); repo.location(fix(122)); repo.stop()
+            val newId = repo.state.value.sessionId!!
+            assertNotEquals(id, newId)
+            assertEquals(1, db.dao().locations(newId, 0, Long.MAX_VALUE).size)
+            assertTrue(db.dao().events(newId, Long.MAX_VALUE).any { it.type == "gps_sampling" })
+            assertEquals(4, db.dao().locations(id, 0, Long.MAX_VALUE).size)
+        } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
+    }
+
     @Test fun headerSoundModeChangesAreIncludedInSessionExports() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         Preferences(context).settings(Settings())

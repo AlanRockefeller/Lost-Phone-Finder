@@ -320,7 +320,7 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
             Text("STRONGEST NOW", fontSize = 10.sp, color = FinderColors.accent)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(device.displayName ?: "Unnamed transmitter", fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(device.displayTitle(), fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(device.address, fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp, color = FinderColors.neutral400)
                 }
                 Text(signal(device.stats.current), fontSize = 44.sp, color = FinderColors.accent300, maxLines = 1)
@@ -338,7 +338,7 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
     FinderCard(Modifier.fillMaxWidth().clickable { repo.selectTarget(device.address) }) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(device.displayName ?: "Unnamed transmitter", Modifier.weight(1f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(device.displayTitle(), Modifier.weight(1f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (state.mutes.isMuted(device.address)) FinderIcon(R.drawable.ic_bell_slash, description = "Muted", modifier = Modifier.size(16.dp))
             }
             Text(device.address.takeLast(8), fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp, color = FinderColors.neutral600)
@@ -363,7 +363,7 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(device.displayName ?: "Unnamed transmitter", Modifier.weight(1f, fill = false), fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(device.displayTitle(), Modifier.weight(1f, fill = false), fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (muted) StatusTag("Muted") else if (state.nowWall - stats.firstSeen < 6000) StatusTag("New", true)
                     }
                     Text(device.address, fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp, color = FinderColors.neutral400, maxLines = 1)

@@ -52,6 +52,7 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
     private var session: SessionEntity? = null
     private var targetOverride: SignalStats? = null
     private var identity = PhysicalIdentityEngine()
+    private val gpsBreadcrumbs = GpsBreadcrumbs()
     private val targetHistory = ArrayDeque<RssiSample>()
     private var targetMembers: Set<String> = emptySet()
     private val initialized = CompletableDeferred<Unit>()
@@ -123,15 +124,19 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         session = session!!.copy(endedAt = null, status = "active")
         db.dao().putSession(session!!)
         current = current.copy(active = true, hasSearched = true, simulated = simulated, error = null)
+        gpsBreadcrumbs.reset()
         backlogFailure.set(null); acceptingResults = true
         nextStorageCheck = elapsedNow() + 1000
         resultsSinceStorageCheck = 0
-        event("start", "User started search"); publish()
+        event("start", "User started search")
+        recordGpsPolicy()
+        publish()
     }
     private fun createSession(simulated: Boolean) {
         val s = SessionEntity(UUID.randomUUID().toString(), System.currentTimeMillis(), simulated = simulated, settingsJson = SearchJson.encodeToString(current.settings))
         sessionStartedElapsed = elapsedNow()
         db.dao().putSession(s); session = s; devices.clear(); signalHistory.clear(); strongestSelector.reset(); targetOverride = null; identity = PhysicalIdentityEngine(); targetHistory.clear(); targetMembers = emptySet()
+        gpsBreadcrumbs.reset()
         current = current.copy(sessionId = s.id, simulated = simulated, mutes = current.mutes.nextSession(), target = null,
             baseline = null, baselineReview = emptySet(), targetSeed = null, targetCandidate = null,
             identitySuggestions = emptyList(), targetAddressChange = null, targetHistory = emptyList(), targetIdentityNotice = null)
@@ -175,7 +180,9 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
             session = session!!.copy(endedAt = System.currentTimeMillis(), status = "stopped")
             db.dao().finish(session!!.id, session!!.endedAt!!, "stopped")
         }
-        event("new_session", "Previous session retained in Sessions"); publish()
+        event("new_session", "Previous session retained in Sessions")
+        if (current.active) recordGpsPolicy()
+        publish()
     }
     fun receive(observation: Observation, gpsGeneration: Long = state.value.gpsGeneration) {
         if (!acceptingResults) return
@@ -253,7 +260,13 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         }
     }
     fun location(fix: GeoFix, gpsGeneration: Long = state.value.gpsGeneration) = enqueue {
-        if (current.settings.gps && !current.simulated && gpsGeneration == current.gpsGeneration && checkStorage()) session?.let { db.dao().insertLocation(LocationEntity(sessionId = it.id, json = SearchJson.encodeToString(fix))) }
+        if (current.settings.gps && !current.simulated && gpsGeneration == current.gpsGeneration && checkStorage() && gpsBreadcrumbs.retain(fix)) {
+            session?.let { db.dao().insertLocation(LocationEntity(sessionId = it.id, json = SearchJson.encodeToString(fix))) }
+        }
+    }
+    private fun recordGpsPolicy() {
+        if (current.settings.gps && !current.simulated) event("gps_sampling",
+            "Standalone GPS interval ${GpsBreadcrumbs.INTERVAL_MILLIS} ms; BLE observations retain their attached fix, timestamp and accuracy")
     }
     fun selectTarget(address: String?) = enqueue {
         current = current.copy(target = address, targetSeed = address, targetAddressChange = null, targetIdentityNotice = null)
@@ -299,7 +312,12 @@ class SearchRepository(val db: SearchDatabase, private val preferences: Preferen
         val valid = settings.validated(); preferences.settings(valid)
         // A generation survives StateFlow conflation, including a rapid off/on toggle.
         val generation = current.gpsGeneration + if (valid.gps != current.settings.gps) 1 else 0
-        current = current.copy(settings = valid, gpsGeneration = generation); event("settings", SearchJson.encodeToString(valid)); publish()
+        val gpsChanged = generation != current.gpsGeneration
+        if (gpsChanged) gpsBreadcrumbs.reset()
+        current = current.copy(settings = valid, gpsGeneration = generation)
+        event("settings", SearchJson.encodeToString(valid))
+        if (gpsChanged && current.active) recordGpsPolicy()
+        publish()
     }
     fun reportError(message: String) = enqueue { current = current.copy(error = message); publish() }
     suspend fun exportSnapshot(id: String, address: String?): SessionExporter.Snapshot = serial {

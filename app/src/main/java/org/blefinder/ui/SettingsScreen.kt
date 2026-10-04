@@ -146,7 +146,7 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(if (info == "gps") "GPS logging" else "Keep display awake", style = MaterialTheme.typography.titleLarge)
             Text(if (info == "gps")
-                "GPS adds your phone’s coordinates and accuracy to new search observations after a location fix is available. You can turn it on or off during a search. Earlier observations stay unchanged. It requires location services and may take time to get a fix, especially indoors. Debug simulation does not use GPS."
+                "GPS adds your phone’s coordinates, fix time and accuracy to each new search observation after a fix is available. A separate location trail is saved about once a minute to help explain gaps in BLE reception. You can turn GPS on or off during a search. Earlier observations stay unchanged. It requires location services and may take time to get a fix, especially indoors. Debug simulation does not use GPS."
             else
                 "Keep display awake leaves the screen on during a search and uses more battery. Search is configured to keep discovering devices and pinging while the screen is off. Active searches keep the CPU awake; Stop releases it.", fontSize = 13.sp)
             ActionButton("Done", { info = null }, Modifier.fillMaxWidth())

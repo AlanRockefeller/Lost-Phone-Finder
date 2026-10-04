@@ -29,7 +29,7 @@ deps = [stdlib, jar('org.jetbrains.kotlinx', 'kotlinx-serialization-core-jvm', '
     jar('org.jetbrains.kotlinx', 'kotlinx-serialization-json-jvm', '1.11.0'),
     jar('junit', 'junit', '4.13.2'), jar('org.hamcrest', 'hamcrest-core', '1.3')]
 plugin = jar('org.jetbrains.kotlin', 'kotlin-serialization-compiler-plugin-embeddable', '2.4.20')
-test_classes = ['CoreTest', 'PacketProfilesTest', 'AddressAssignmentsTest', 'PhysicalIdentityTest']
+test_classes = ['CoreTest', 'PacketProfilesTest', 'AddressAssignmentsTest', 'PhysicalIdentityTest', 'AdvertisementHintsTest', 'GpsBreadcrumbsTest']
 sources = sorted((root / 'app/src/main/java/org/blefinder/core').glob('*.kt')) + [
     root / f'app/src/test/java/org/blefinder/{name}.kt' for name in test_classes]
 subprocess.run([args.java, '-cp', ':'.join(compiler), 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler',

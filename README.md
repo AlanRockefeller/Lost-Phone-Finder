@@ -1,4 +1,4 @@
-# Lost Phone Finder v0.1.5
+# Lost Phone Finder v0.1.6
 
 Lost Phone Finder is a free app that helps you locate a lost device by picking up bluetooth (BLE) signals.  It is designed to be used to find a phone lost in the woods - probably wouldn't be very useful in a city since there will be a lot of bluetooth signals around.
 
@@ -130,12 +130,12 @@ Baseline membership uses callback receipt time within a monotonic start/end wind
 | `sessions` | UUID, start/end timestamps, active/stopped/archived/interrupted status, simulation marker, initial settings JSON |
 | `devices` | `(sessionId, address)` key; latest observation, retained display name/company guess and aggregate statistics JSON |
 | `observations` | Autoincrement ID, session/address/time/RSSI query columns; complete typed observation JSON including raw bytes encoded as hex, decoded fields, metadata, target/mute/simulation state and optional GPS fix |
-| `locations` | Every accepted GPS fix independently of BLE arrival, with lat/lon/accuracy/wall time/monotonic time |
+| `locations` | Sparse standalone GPS fixes with lat/lon/accuracy/wall time/monotonic time, sampled once per minute during each GPS run |
 | `events` | Start/stop, settings, target changes/resets, mute changes and baseline history |
 
 Foreign keys relate data to sessions, with indexes for session/address/result paging. Session updates use upsert (not replacement) so resume cannot cascade-delete old results. Preferences store validated settings and persistent address mutes. No observations are sent anywhere. App backup is disabled.
 
-GPS is optional and must be changed while stopped. GPS-only updates are requested every second with zero minimum displacement; actual cadence depends on Android/hardware. Results attach only a preceding fix no more than 30 seconds old, retaining its own timestamp and accuracy. Missing/stale GPS stays null, not a fabricated location. GPS logging requires system location services and is suppressed for simulation.
+GPS is optional and can be changed during a search. Updates are requested every second with zero minimum displacement so each BLE result can attach a fresh preceding fix no more than 30 seconds old, retaining its timestamp and accuracy. Standalone fixes are saved only for the first valid fix after Start, a new session or a GPS restart, then at intervals of at least 60 monotonic seconds. This sparse trail provides context for BLE reception gaps without saving every GPS callback twice. A `gps_sampling` event describes the policy. Missing/stale GPS stays null. GPS logging requires system location services and is suppressed for simulation. Existing sessions keep their original data. See [advertisement labels and GPS retention](docs/LABELS_AND_GPS_0.1.6.md).
 
 ## Exports
 
@@ -170,7 +170,7 @@ Search opens with an ID/address, RSSI (dBm), and received-age table, ordered by 
 
 Settings separates low/high alert frequencies (Hz) from the weak/strong signal levels (dBm) that reach those frequencies. A curve previews the existing pitch mapping. Sensitivity levels do not filter scan results or logs.
 
-Packet profiles compare manufacturer IDs and payload lengths, service UUIDs and service-data lengths, solicitation UUIDs, and advertising structure types/lengths. They ignore the address, RSSI, timestamps and changing payload bytes. These are format buckets, potentially shared by many physical devices, not verified identities. Advertisements without manufacturer/service clues remain separate. Muting continues to use exact addresses. Buckets reflect each address's latest packet and can change when its advertisement changes. Physical identity is a separate conservative inference over learned stable payload bytes, timing, RSSI and optional GPS; candidate groups never replace raw address records.
+Packet profiles compare manufacturer IDs and payload lengths, service UUIDs and service-data lengths, solicitation UUIDs, and advertising structure types/lengths. They ignore the address, RSSI, timestamps and changing payload bytes. These are format buckets, potentially shared by many physical devices, not verified identities. Advertisements without manufacturer/service clues remain separate. Muting continues to use exact addresses. Buckets reflect each address's latest packet and can change when its advertisement changes. Physical identity is a separate conservative inference over learned stable payload bytes, timing, RSSI and optional GPS; candidate groups never replace raw address records. Protocol hints provide readable labels: FEF3 becomes Possible Android, recognised Apple proximity pairing becomes Possible Apple accessory, and short/long Find My messages become Apple Find My device. These labels describe observed radio clues, not confirmed phone models. Raw names and packets are retained; displayed names omit trailing NUL padding.
 
 To analyze rotating addresses, open Sessions and export the overnight session as JSON. It includes every stored observation and raw advertisement, so timing, payload changes and overlap can be compared rather than relying on the latest-packet view.
 
