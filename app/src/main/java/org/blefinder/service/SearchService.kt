@@ -18,6 +18,7 @@ class SearchService : Service() {
     private var source: BleSource? = null
     private var audio: ChirpEngine? = null
     private var gps: LocationLogger? = null
+    private var gpsGeneration: Long = -1
     private var starting = false
     private var stopping = false
     private var awaitingFinalization = false
@@ -67,20 +68,22 @@ class SearchService : Service() {
                     audio = ChirpEngine(this@SearchService) { repo.reportError(it) }
                     audio?.configure(repo.state.value.settings)
                     repo.sound = { observation, new, settings -> audio?.offer(observation, new, settings) }
-                    if (repo.state.value.settings.gps && !simulated) {
-                        gps = LocationLogger(this@SearchService, repo::location).also { it.start() }
+                    val receive: (org.blefinder.core.Observation) -> Unit = { o ->
+                        repo.receive(o.copy(location = recentLocation(o.elapsedMillis)), gpsGeneration)
                     }
-                    val receive: (org.blefinder.core.Observation) -> Unit = { o -> repo.receive(o.copy(location = gps?.recent(o.elapsedMillis))) }
                     source = if (simulated) DemoFactory.create(scope, receive) else AndroidBleSource(this@SearchService, receive) {
                         repo.reportError(it); end()
                     }
                     scope.launch {
-                        repo.state.map { Triple(it.audioMuted, it.target, it.mutes) }.distinctUntilChanged().collect {
+                        repo.state.map { Triple(it.audioMuted, it.targetSeed, it.mutes) }.distinctUntilChanged().collect {
                             audio?.silence(true); audio?.silence(it.first)
                         }
                     }
                     scope.launch {
-                        repo.state.map { it.settings }.distinctUntilChanged().collect { audio?.configure(it) }
+                        repo.state.map { it.settings to it.gpsGeneration }.distinctUntilChanged().collect { (settings, generation) ->
+                            audio?.configure(settings)
+                            updateGps(settings.gps, generation)
+                        }
                     }
                     source!!.start()
                     scope.launch {
@@ -99,6 +102,35 @@ class SearchService : Service() {
             if (stopping) stopForegroundAndSelf() else end(awaitRepository = false)
         }
         return START_NOT_STICKY
+    }
+    internal fun recentLocation(atElapsedMillis: Long): org.blefinder.core.GeoFix? {
+        val state = repo.state.value
+        return if (state.settings.gps && state.gpsGeneration == gpsGeneration) gps?.recent(atElapsedMillis) else null
+    }
+    private fun updateGps(enabled: Boolean, generation: Long) {
+        if (stopping) return
+        if (gpsGeneration != generation) {
+            val previous = gps; gps = null
+            runCatching { previous?.stop() }
+            gpsGeneration = generation
+        }
+        if (!enabled || simulated) {
+            val previous = gps; gps = null
+            runCatching { previous?.stop() }
+        } else if (gps == null) {
+            val logger = LocationLogger(this) { fix -> repo.location(fix, generation) }
+            try {
+                logger.start()
+                gps = logger
+                if (!getSystemService(android.location.LocationManager::class.java)
+                        .isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
+                    repo.reportError("GPS logging is waiting for location services. Turn on Location in phone settings.")
+                }
+            } catch (e: Exception) {
+                runCatching { logger.stop() }
+                repo.reportError("GPS logging could not start: ${e.message}. Check location permissions and phone location settings, then toggle GPS logging off and on to retry.")
+            }
+        }
     }
     private fun notification(count: Int): Notification {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)

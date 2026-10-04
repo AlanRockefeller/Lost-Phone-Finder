@@ -129,8 +129,8 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
                 FadingDivider()
                 SettingsRow("Baseline duration", "${s.baselineSeconds} sec") { slider = "baseline" }
                 FadingDivider()
-                Toggle("GPS logging", s.gps, enabled = !state.active) { repo.updateSettings(s.copy(gps = it)) }
-                SettingsHelper("Adds coordinates to observations. Set before starting.", "GPS logging") { info = "gps" }
+                Toggle("GPS logging", s.gps) { repo.updateSettings(s.copy(gps = it)) }
+                SettingsHelper("Adds coordinates to new results when GPS has a fix.", "GPS logging") { info = "gps" }
                 FadingDivider()
                 Toggle("Keep display awake", s.keepAwake) { repo.updateSettings(s.copy(keepAwake = it)) }
                 SettingsHelper("Uses more battery during a search.", "Keep display awake") { info = "awake" }
@@ -139,14 +139,14 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
                 FadingDivider()
                 SettingsRow("Privacy", "") { page = "privacy" }
             }
-            item { ActionButton("Restore default settings", { repo.updateSettings(Settings(gps = if (state.active) s.gps else false)) }, Modifier.fillMaxWidth(), secondary = true) }
+            item { ActionButton("Restore default settings", { repo.updateSettings(Settings()) }, Modifier.fillMaxWidth(), secondary = true) }
         }
     }
     if (info != null) ModalBottomSheet(onDismissRequest = { info = null }, containerColor = FinderColors.surface) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(if (info == "gps") "GPS logging" else "Keep display awake", style = MaterialTheme.typography.titleLarge)
             Text(if (info == "gps")
-                "Optional GPS adds coordinates and accuracy to search observations. It requires location services; BLE can scan with GPS logging disabled. Change it before starting a search."
+                "GPS adds your phone’s coordinates and accuracy to new search observations after a location fix is available. You can turn it on or off during a search. Earlier observations stay unchanged. It requires location services and may take time to get a fix, especially indoors. Debug simulation does not use GPS."
             else
                 "Keep display awake leaves the screen on during a search and uses more battery. Search is configured to keep discovering devices and pinging while the screen is off. Active searches keep the CPU awake; Stop releases it.", fontSize = 13.sp)
             ActionButton("Done", { info = null }, Modifier.fillMaxWidth())
@@ -232,10 +232,11 @@ fun SettingsScreen(state: SearchState, repo: SearchRepository) {
 
 @Composable private fun RecordingCredits() {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SmallNote("Tugboat horn: a steam whistle recorded on Nixe by Work With Sounds / Konrad Gutkowski with Jonathan Nicolai. Oropendola calls: Richard Ranft, copyright The British Library Board. Both are shortened, filtered and normalized excerpts.")
+        SmallNote("Tugboat horn: a steam whistle recorded on Nixe by Work With Sounds / Konrad Gutkowski with Jonathan Nicolai. Oropendola bloop: a real Montezuma oropendola recorded by Félix Blume in Veracruz, Mexico. Both are shortened, filtered and normalized excerpts.")
         CreditLink("Tugboat recording", "https://commons.wikimedia.org/wiki/File:WWS_Steamwhistle.ogg")
-        CreditLink("Oropendola recording", "https://commons.wikimedia.org/wiki/File:Montezuma_Oropendola_(Psarocolius_montezuma)_(W_PSAROCOLIUS_MONTEZUMA_R1_C4).ogg")
-        CreditLink("Recording license: CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/")
+        CreditLink("Oropendola recording", "https://freesound.org/people/felix.blume/sounds/512109/")
+        CreditLink("Tugboat license: CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/")
+        CreditLink("Oropendola dedication: CC0 1.0", "https://creativecommons.org/publicdomain/zero/1.0/")
     }
 }
 

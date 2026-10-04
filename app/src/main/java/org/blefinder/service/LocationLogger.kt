@@ -11,18 +11,19 @@ import org.blefinder.core.GeoFix
 class LocationLogger(context: Context, private val receive: (GeoFix) -> Unit) : LocationListener {
     private val manager = context.getSystemService(LocationManager::class.java)
     private var latest: GeoFix? = null
+    private var running = false
     fun recent(atElapsedMillis: Long): GeoFix? = latest?.takeIf {
         val age = atElapsedMillis - it.elapsedNanos / 1_000_000
         age in 0..30_000
     }
     @SuppressLint("MissingPermission")
     fun start() {
-        if (manager.isProviderEnabled(LocationManager.GPS_PROVIDER))
-            manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, this, Looper.getMainLooper())
+        manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, this, Looper.getMainLooper())
+        running = true
     }
-    fun stop() { manager.removeUpdates(this); latest = null }
+    fun stop() { running = false; latest = null; manager.removeUpdates(this) }
     override fun onLocationChanged(location: Location) {
-        if (!location.hasAccuracy()) return
+        if (!running || !location.hasAccuracy()) return
         val fix = GeoFix(location.latitude, location.longitude, location.accuracy, location.time, location.elapsedRealtimeNanos)
         latest = fix; receive(fix)
     }

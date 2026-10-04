@@ -121,6 +121,71 @@ class StorageTest {
             assertEquals(3L, db.dao().count(id)); assertTrue(repo.state.value.mutes.session.isEmpty())
         } finally { scope.cancel() }
     }
+    @Test fun gpsChangesOnlyAffectNewObservationsAndRejectLateFixes() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        Preferences(context).settings(Settings())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repo = SearchRepository(db, Preferences(context), scope)
+        val fix = GeoFix(1.0, 2.0, 3f, 1000, 1_000_000_000)
+        try {
+            repo.start(false)
+            val id = repo.state.value.sessionId!!
+            repo.receive(observation(address = "A").copy(location = fix))
+            repo.location(fix)
+            repo.updateSettings(Settings(gps = true))
+            repo.exportSnapshot(id, null)
+            repo.receive(observation(address = "A").copy(location = fix))
+            repo.location(fix)
+            repo.updateSettings(Settings(gps = false))
+            repo.receive(observation(address = "A").copy(location = fix))
+            repo.location(fix)
+            repo.exportSnapshot(id, null)
+            val observations = db.dao().page(id, null, 0, Long.MAX_VALUE)
+                .map { SearchJson.decodeFromString<Observation>(it.json) }
+            assertEquals(listOf(null, fix, null), observations.map { it.location })
+            assertEquals(1, db.dao().locations(id, 0, Long.MAX_VALUE).size)
+            repo.stop()
+            repo.start(true)
+            assertTrue(repo.state.value.error, repo.state.value.active)
+            repo.updateSettings(Settings(gps = true))
+            repo.location(fix)
+            repo.receive(observation(address = "A").copy(location = fix))
+            val simulatedId = repo.state.value.sessionId!!
+            val snapshot = repo.exportSnapshot(simulatedId, null)
+            assertTrue(db.dao().locations(simulatedId, 0, Long.MAX_VALUE).isEmpty())
+            assertNull(snapshot.devices.single().latest.location)
+        } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
+    }
+
+    @Test fun rapidGpsRestartRejectsOldGenerationFixesAndObservations() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        Preferences(context).settings(Settings(gps = true))
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repo = SearchRepository(db, Preferences(context), scope)
+        val fix = GeoFix(1.0, 2.0, 3f, 1000, 1_000_000_000)
+        try {
+            repo.start(false)
+            val id = repo.state.value.sessionId!!
+            val oldGeneration = repo.state.value.gpsGeneration
+            repo.receive(observation(address = "A").copy(location = fix), oldGeneration)
+            repo.location(fix, oldGeneration)
+            repo.updateSettings(Settings(gps = false))
+            repo.updateSettings(Settings(gps = true))
+            // These callbacks were captured by the previous logger, even though GPS is enabled again.
+            repo.receive(observation(address = "A").copy(location = fix), oldGeneration)
+            repo.location(fix, oldGeneration)
+            repo.exportSnapshot(id, null)
+            assertEquals(oldGeneration + 2, repo.state.value.gpsGeneration)
+            repo.receive(observation(address = "A").copy(location = fix))
+            repo.location(fix)
+            repo.exportSnapshot(id, null)
+            val rows = db.dao().page(id, null, 0, Long.MAX_VALUE)
+                .map { SearchJson.decodeFromString<Observation>(it.json) }
+            assertEquals(listOf(fix, null, fix), rows.map { it.location })
+            assertEquals(2, db.dao().locations(id, 0, Long.MAX_VALUE).size)
+        } finally { scope.coroutineContext[Job]!!.cancelAndJoin() }
+    }
+
     @Test fun headerSoundModeChangesAreIncludedInSessionExports() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         Preferences(context).settings(Settings())

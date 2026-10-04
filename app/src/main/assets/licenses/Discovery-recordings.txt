@@ -1,6 +1,8 @@
 Offline notification recordings, licensed separately from the GPL application.
-Both recordings are licensed CC BY 4.0:
+The tugboat recording is licensed CC BY 4.0:
 https://creativecommons.org/licenses/by/4.0/
+The oropendola recording is dedicated to the public domain under CC0 1.0:
+https://creativecommons.org/publicdomain/zero/1.0/
 
 Tugboat horn (steam whistle of the tugboat Nixe)
 Work With Sounds / Konrad Gutkowski; recorded with Jonathan Nicolai, 27 September 2014.
@@ -9,10 +11,15 @@ Original: https://upload.wikimedia.org/wikipedia/commons/b/b4/WWS_Steamwhistle.o
 Changes: excerpt 1.45–3.25 seconds, mono 48 kHz signed 16-bit little-endian PCM;
 40 Hz high-pass, 20 ms fade-in, 40 ms fade-out, peak normalization to 90%, and additional 10 ms cosine endpoint fades after resampling.
 
-Montezuma oropendola song and calls
-Recording by Richard Ranft, Heredia Province, Costa Rica, 2 March 1985.
-Copyright The British Library Board. Shelfmark W1CDR0001419 BD20.
-Source: https://commons.wikimedia.org/wiki/File:Montezuma_Oropendola_(Psarocolius_montezuma)_(W_PSAROCOLIUS_MONTEZUMA_R1_C4).ogg
-Original: https://upload.wikimedia.org/wikipedia/commons/f/f7/Montezuma_Oropendola_%28Psarocolius_montezuma%29_%28W_PSAROCOLIUS_MONTEZUMA_R1_C4%29.ogg
-Changes: excerpt 1.2–3.3 seconds, mono 48 kHz signed 16-bit little-endian PCM;
-300 Hz high-pass, 20 ms fade-in, 40 ms fade-out, peak normalization to 90%, and additional 10 ms cosine endpoint fades after resampling.
+Montezuma oropendola bird call
+Recording by Félix Blume (Freesound user felix.blume), Paso de Telaya, Veracruz, Mexico.
+Published 5 April 2020. Sound reference MX-200402-03, recorded during a Casa Proal residency.
+Source: https://freesound.org/people/felix.blume/sounds/512109/
+Downloaded high-quality preview: https://cdn.freesound.org/previews/512/512109_1661766-hq.mp3
+Source MP3 SHA-256: 35ca15c48a811081bfa0e9615da5495cc7016f77ab0c15237ae15db1087fa545
+License: CC0 1.0, https://creativecommons.org/publicdomain/zero/1.0/
+Changes: excerpt 6.15–7.35 seconds, original pitch and timing; 250 Hz high-pass,
+3500 Hz low-pass, mono 48 kHz signed 16-bit little-endian PCM, peak normalization
+to 90%, 15 ms cosine fade-in and 35 ms cosine fade-out after resampling.
+PCM SHA-256: 1ff2c7675740cb47cec0ee2a381acab367be7745abc8e9d2189e55801b28fcea
+Regenerate with tools/update-oropendola-audio.py as described in docs/DISCOVERY_AUDIO.md.

@@ -51,6 +51,7 @@ fun ageText(device: DeviceRecord, state: SearchState): String = "${(state.nowEla
 @Composable
 fun SearchApp(repo: SearchRepository, status: String?, dismissStatus: () -> Unit,
     start: (Boolean) -> Unit, stop: () -> Unit, export: (String, String?, Boolean) -> Unit,
+    exportAll: (Boolean) -> Unit,
     keepAwake: (Boolean) -> Unit) {
     val state by repo.state.collectAsStateWithLifecycle()
     val sessions by repo.sessions.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -103,7 +104,7 @@ fun SearchApp(repo: SearchRepository, status: String?, dismissStatus: () -> Unit
                     tabState.SaveableStateProvider(tab) {
                         when (tab) {
                             0, 1 -> DeviceSearchScreen(state, repo, tab == 0, simulation, { simulation = it }, { restart = true })
-                            2 -> SessionsScreen(sessions, state, export)
+                            2 -> SessionsScreen(sessions, state, export, exportAll)
                             3 -> SettingsScreen(state, repo)
                         }
                     }
@@ -149,12 +150,26 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
     }
 }
 
-@Composable private fun SessionsScreen(sessions: List<SessionEntity>, state: SearchState, export: (String, String?, Boolean) -> Unit) {
+@Composable private fun SessionsScreen(sessions: List<SessionEntity>, state: SearchState, export: (String, String?, Boolean) -> Unit,
+    exportAll: (Boolean) -> Unit) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
         item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FinderIcon(R.drawable.ic_lock)
-            Text("Observations stay on this phone. JSON has full scan metadata; CSV is one row per result.", fontSize = 12.sp, color = FinderColors.neutral400)
+            Text("Observations stay on this phone. JSON has full scan metadata; individual session CSV is one row per result.", fontSize = 12.sp, color = FinderColors.neutral400)
         } }
+        item {
+            FinderCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Export all sessions", fontWeight = FontWeight.Medium)
+                    Text("Save every stored session in one file, including real and simulated searches. JSON includes full records. CSV uses record types and session IDs.",
+                        fontSize = 12.sp, color = FinderColors.neutral400)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ActionButton("Export all JSON", { exportAll(true) }, modifier = Modifier.fillMaxWidth(), enabled = state.ready && sessions.isNotEmpty(), icon = R.drawable.ic_export)
+                        ActionButton("Export all CSV", { exportAll(false) }, modifier = Modifier.fillMaxWidth(), enabled = state.ready && sessions.isNotEmpty(), secondary = true)
+                    }
+                }
+            }
+        }
         if (sessions.isEmpty()) item { Text("Start a search to create a session.") }
         items(sessions, key = { it.id }) { session ->
             FinderCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -241,7 +256,14 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
                     Text(address, fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp); Text("Mute: ${state.mutes.kind(address)}"); MuteButtons(address, state.mutes, repo)
                 } } }
             }
-            if (devices.isEmpty()) item { Text(if (state.active) "Listening for BLE advertisements… A phone must be advertising to appear." else "No scan results yet. Start a search outdoors or use debug simulation.", color = FinderColors.neutral400) }
+            if (devices.isEmpty()) item {
+                val message = when {
+                    state.active -> "Listening for BLE advertisements… A phone must be advertising to appear."
+                    DemoFactory.available -> "No scan results yet. Start a search outdoors or use debug simulation."
+                    else -> "No scan results yet. Start a search to look for nearby BLE devices."
+                }
+                Text(message, color = FinderColors.neutral400)
+            }
             if (search && devices.isNotEmpty()) {
                 val featured = devices.firstOrNull { it.address == state.featuredAddress }
                 if (featured != null) item(key = "featured-${featured.address}") { FeaturedDevice(featured, state, repo) }
@@ -260,7 +282,7 @@ private fun Modifier.selectableTab(selected: Boolean, click: () -> Unit) = this.
                 packetBuckets(devices).forEachIndexed { i, bucket ->
                     item(key = "profile-${bucket.key}") {
                         Text("${bucket.label} · ${bucket.devices.size} addresses", fontSize = 12.sp, color = FinderColors.accent)
-                        if (i == 0) SmallNote("Buckets share manufacturer / service data format. They may contain multiple physical devices. Addresses remain separate for tracking and muting.")
+                        if (i == 0) SmallNote("Buckets share manufacturer / service data format. They may contain multiple physical devices. Buckets are not identity candidates. Address-specific mutes remain separate.")
                     }
                     items(bucket.devices, key = { it.address }) { DeviceCard(it, state, repo, menuChange) }
                 }

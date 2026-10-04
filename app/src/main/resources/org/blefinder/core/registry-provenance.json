@@ -1,0 +1,22 @@
+{
+  "company_identifiers.yaml": {
+    "source": "https://bitbucket.org/bluetooth-SIG/public/raw/main/assigned_numbers/company_identifiers/company_identifiers.yaml",
+    "sha256": "8057c60c98590adbefee4796668e4690e1794cf679ef843a2c7f25e133d8a1d7"
+  },
+  "oui.csv": {
+    "source": "https://standards-oui.ieee.org/oui/oui.csv",
+    "sha256": "45a67bfc498e7c85533fbfd1e6ce904211954c969a151b810251953c7ba6671c"
+  },
+  "mam.csv": {
+    "source": "https://standards-oui.ieee.org/oui28/mam.csv",
+    "sha256": "dad9813da83a299182e47add7cfb96b4867948f1aaee23ca4c49a9217dff516f"
+  },
+  "oui36.csv": {
+    "source": "https://standards-oui.ieee.org/oui36/oui36.csv",
+    "sha256": "133030ff4f4c805f28f09e84f28cc9b55f1a03c15c90c5269c99722db0fb1348"
+  },
+  "counts": {
+    "companies": 4045,
+    "ieee": 54126
+  }
+}

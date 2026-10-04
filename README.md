@@ -2,6 +2,15 @@
 
 Lost Phone Finder is a free app that helps you locate a lost device by picking up bluetooth (BLE) signals.  It is designed to be used to find a phone lost in the woods - probably wouldn't be very useful in a city since there will be a lot of bluetooth signals around.
 
+**[Download Android app](https://github.com/AlanRockefeller/Lost-Phone-Finder/releases)** (Android 8.0 or newer)
+
+1. Open the link on your Android phone and choose a release.
+2. Under **Assets**, download `app-release.apk`. The source-code ZIP and TAR files are not installable apps.
+3. Open the downloaded APK. If prompted, open **Settings** and enable **Allow from this source** for your browser or file manager, then return and tap **Install**.
+4. Open Lost Phone Finder, enable Bluetooth, and grant the permissions requested when starting a search.
+
+If no APK appears under **Assets**, a downloadable build has not been published yet.
+
 A lost phone must be powered and advertising BLE to appear (iPhone 11+ and Pixel 8+ can transmit for a few hours after the battery runs down). This is not a Find My / Find Hub client. Scan results received are **not** every packet transmitted over the air due to hardware limitations.
 
 Uses Kotlin, Jetpack Compose, generated per-result audio, target tracking, baseline muting, local sessions, optional GPS and JSON/CSV export. No account, network permission, telemetry or backend.
@@ -36,7 +45,7 @@ Build APKs through Gradle so runtime dependencies, Android resources, manifests 
 4. Tap a transmitter to enter Target mode: only that address sounds. Read current/smoothed RSSI, extrema, average, result count, rate and age. Raw pitch continues to follow individual results. Return to Scan or stop directly from Target.
 5. To exclude search-party devices, gather them nearby and run Baseline (30 seconds by default). Addresses detected during the countdown become session-muted. Review each result, unmute false exclusions, or explicitly choose **Always mute**.
 6. Stop and resume the same session as needed. **New session** archives the current session and resets the live list/session mutes. Prior observations remain under Sessions. Clearing target statistics resets the tracking view only; it does not erase the session log.
-7. Export a session or target using the system document picker. Choose local storage for a fully offline export. Sharing exported data is the user's choice.
+7. Export a session or target using the system document picker. To save everything in one file, open **Sessions** and choose **Export all JSON** or **Export all CSV**. Choose local storage for a fully offline export. Sharing exported data is the user's choice.
 
 Debug builds offer **Debug simulation** while stopped. It emits three synthetic transmitters, then introduces a fourth, with changing RSSI and representative names/manufacturer/service data. Simulated records and sessions are labeled and exported as simulated. The real simulator exists **only** in `src/debug`; `src/release` rejects its construction and hides its controls. Simulation uses the same service, repository, sound, baseline, tracking and export paths; the foreground service still requests its normal permissions.
 
@@ -95,8 +104,8 @@ Readiness shows Bluetooth, Nearby devices/fine location permissions, location se
 - Aggressive matching / maximum hardware matches. Extended advertisements and all supported PHYs where the adapter supports them; legacy-only adapters use legacy scan configuration.
 - Android's active scan default; explicit `SCAN_TYPE_ACTIVE` on API 37+, guarded because the setter was introduced in 36.1.
 - Capture address, Android address type on API 35+, cached device name, local name, raw RSSI, wall-clock event/receipt times and monotonic controller timestamp. Capture TX powers, flags, service and solicitation UUIDs, manufacturer/service data, connectability, legacy flag, PHYs, SID, periodic interval, data status and callback type. Android's AD map is captured on API 33+.
-- The parser preserves ordered/repeated AD structures and malformed/truncated raw bytes. Manufacturer identifiers use a small offline company-name table. Unknown companies/data remain visible in hex. No speculative vendor-specific payload decoder is used.
-- Addresses are concrete session keys, **not physical identities**. Public/random/anonymous types are shown only when Android exposes them; older Android versions say unknown. No MAC-bit heuristic pretends to identify the address type. Random addresses may rotate. Persistent mutes match exact addresses and may miss a rotated address. An unused nullable `probablePhysicalDeviceId` field leaves a future grouping extension without merging devices today. Anonymous results may share the platform's placeholder address; no individual anonymous-device identity is claimed.
+- The parser preserves ordered/repeated AD structures and malformed/truncated raw bytes. Manufacturer identifiers use the complete bundled Bluetooth SIG company-name registry. Unknown companies/data remain visible in hex. No speculative vendor-specific payload decoder is used.
+- Addresses are concrete session keys, **not physical identities**. Public/random/anonymous types are shown only when Android exposes them; older Android versions say unknown. No MAC-bit heuristic pretends to identify the address type. Random addresses may rotate. Persistent mutes match exact addresses and may miss a rotated address. The nullable legacy `probablePhysicalDeviceId` field stays unused; physical candidates are separate inferred groups with visible evidence. Anonymous results may share the platform's placeholder address; no individual anonymous-device identity is claimed.
 
 ## Audio and statistics
 
@@ -132,6 +141,7 @@ GPS is optional and must be changed while stopped. GPS-only updates are requeste
 
 System `ACTION_CREATE_DOCUMENT`; no broad file-storage permissions. Active-session exports take a transactionally consistent snapshot of device metadata and maximum result/location/event IDs, then stream results in pages of 500. Scanning can continue, and newer results go into later exports.
 
+- **All sessions**: Sessions has **Export all JSON** and **Export all CSV** buttons. Both include every stored session, current settings/persistent mutes, session metadata, devices, events, scan observations and independent GPS fixes. JSON uses a schema-version-2 wrapper around complete session objects. CSV adds session IDs, record types and full record JSON, so metadata and GPS updates remain in the same file. Filter CSV to `record_type=observation` for scan results. Each session is snapshotted in turn; stop the search first for a frozen export. See [all-session formats and behavior](docs/ALL_SESSIONS_EXPORT.md).
 - **JSON schemaVersion 1**: session, target selection (null for complete sessions), device metadata/statistics, event history, observations and independent GPS fixes. Raw data remains alongside decoded data; unknown Android values retain numeric representations. Times are Unix milliseconds except explicitly named monotonic nanosecond/millisecond fields.
 - **CSV UTF-8**: one result per row, CRLF, quoted and escaped fields: UTC event/receipt timestamps, address, RSSI, name, manufacturer IDs/names, TX power, address type, latitude/longitude/accuracy/fix timestamp, raw advertisement hex, target/mute/simulation state. Missing data is empty. Potential spreadsheet formulas in untrusted names receive a leading apostrophe. JSON preserves the original name.
 - Target exports filter observations and device metadata to the address. Session event history and independent session GPS fixes remain included for context. Export snapshots use full-session statistics, even if the live target display was reset.
@@ -148,7 +158,7 @@ For a quick hardware-free check, use debug simulation and confirm discovery, raw
 
 Android can pause unfiltered scans when the display turns off and can throttle starts, results or background activity; OEM firmware adds variation. The inclusive filter configuration and CPU wake lock support screen-off discovery and pings but cannot override Doze or all OEM restrictions. Active searches use more battery, even with the display off. Press Stop when finished. The app does not restart scanning when the screen or selected target changes. After scanner throttling, wait at least 30 seconds and retry manually.
 
-Names and company IDs are advertised claims, not ownership or verified manufacturer identity. Manufacturer names cover a small table. No auto-clustering, encrypted-identifier resolution, AoA/AoD, maps, network lookups or vendor finder-network integration. Only the most recent 50 results per target are selectable in the detail UI; **all committed results** are exportable. Radio interference, body shielding, reflections, antenna orientation and phone model strongly affect RSSI. RSSI may remain stale during silence; age is displayed prominently.
+Names and company IDs are advertised claims, not ownership or verified manufacturer identity. Bluetooth company identifiers and public-address IEEE assignments use bundled authoritative registries. Conservative physical-identity candidates can follow learned advertisement fingerprints across probable private-address handoffs. No cryptographic encrypted-identifier resolution, AoA/AoD, maps, network lookups or vendor finder-network integration. Only the most recent 50 results per target are selectable in the detail UI; **all committed results** are exportable. Radio interference, body shielding, reflections, antenna orientation and phone model strongly affect RSSI. RSSI may remain stale during silence; age is displayed prominently.
 
 Abrupt process death, power loss or storage exhaustion may prevent queued callbacks from being committed. There is no lossless over-the-air capture guarantee. Sessions currently have no in-app deletion UI; New session archives instead of destroying data. Android's Clear storage/uninstall removes local data. Export first if needed.
 
@@ -160,7 +170,7 @@ Search opens with an ID/address, RSSI (dBm), and received-age table, ordered by 
 
 Settings separates low/high alert frequencies (Hz) from the weak/strong signal levels (dBm) that reach those frequencies. A curve previews the existing pitch mapping. Sensitivity levels do not filter scan results or logs.
 
-Packet profiles compare manufacturer IDs and payload lengths, service UUIDs and service-data lengths, solicitation UUIDs, and advertising structure types/lengths. They ignore the address, RSSI, timestamps and changing payload bytes. These are format buckets, potentially shared by many physical devices, not verified identities. Advertisements without manufacturer/service clues remain separate. Tracking and muting continue to use exact addresses. Buckets reflect each address's latest packet and can change when its advertisement changes; no grouping is persisted or written into exported identity fields.
+Packet profiles compare manufacturer IDs and payload lengths, service UUIDs and service-data lengths, solicitation UUIDs, and advertising structure types/lengths. They ignore the address, RSSI, timestamps and changing payload bytes. These are format buckets, potentially shared by many physical devices, not verified identities. Advertisements without manufacturer/service clues remain separate. Muting continues to use exact addresses. Buckets reflect each address's latest packet and can change when its advertisement changes. Physical identity is a separate conservative inference over learned stable payload bytes, timing, RSSI and optional GPS; candidate groups never replace raw address records.
 
 To analyze rotating addresses, open Sessions and export the overnight session as JSON. It includes every stored observation and raw advertisement, so timing, payload changes and overlap can be compared rather than relying on the latest-packet view.
 
@@ -177,3 +187,7 @@ Copyright (c) 2026 Alan Rockefeller. This project is licensed under the GNU Gene
 Search stops with an explanation if the database reaches 1 GiB, free phone storage falls below 256 MiB, a session reaches 50,000 addresses, or more than 8,192 scan results are waiting to be stored. These limits are intended for unusually heavy traffic. Existing results remain available to export; nothing is automatically deleted. Results arriving after the cutoff are not logged, and the session records why logging stopped.
 
 Database usage includes the main SQLite file, pending WAL writes and shared-memory files. It is checked before each start and during a search every second or 128 stored results, whichever comes first. File sizes can briefly exceed the threshold between checks. The database limit applies across all saved sessions. Creating a new session does not reset that limit. If the database limit is reached, export the sessions you need before using Android app settings to clear this app's storage. Clearing storage also resets preferences and mutes. For the address or queue limit, a new session or a restart after the traffic has subsided can be enough.
+
+## Physical identity and offline registries
+
+See [physical identity](docs/PHYSICAL_IDENTITY.md) for exact confidence rules, safeguards, persistence and a Samsung Galaxy S24 rotation checklist. See [offline registries](docs/OFFLINE_REGISTRIES.md) for Bluetooth SIG/IEEE sources, provenance and regeneration commands. Target follows only high-confidence inferred handoffs and shows the changed address and evidence. Possible matches remain separate. Both target export formats include current candidate addresses; full session JSON retains all original observations and target-change events.

@@ -18,7 +18,7 @@ fun packetBuckets(devices: List<DeviceRecord>): List<PacketBucket> = devices
         val first = members.first()
         val key = profile
         val label = if (profile.startsWith("address:")) "No distinguishing packet data" else
-            "Packet profile ${profile.take(8)} • ${first.company ?: "Vendor unknown"}"
+            "Packet profile ${profile.take(8)} • ${first.company?.let { "Bluetooth company: $it" } ?: "Bluetooth company unknown"}"
         PacketBucket(key, label, members)
     }
     .sortedByDescending { bucket -> bucket.devices.maxOf { it.latest.receivedElapsedMillis } }
