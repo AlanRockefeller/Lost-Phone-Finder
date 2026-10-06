@@ -15,7 +15,7 @@ python3 tools/verify-apk-runtime.py app/build/outputs/apk/release/app-release.ap
   --runtime-artifacts app/build/reports/release-runtime-artifacts.txt
 ```
 
-- Debug and release: 137 tests each, zero failures, errors or skips. This includes all 103 existing tests and 34 address/registry, fingerprint/identity and Target/storage regressions.
+- Debug and release: 147 tests each in the final validation run, zero failures, errors or skips. This includes all 103 existing tests and 44 address/registry, fingerprint/identity, GPS, Target/storage and all-session export regressions.
 - Standalone cached-dependency core runner: 78 tests passed. It now includes packet-profile, registry and identity tests, and packages the bundled resources into its test JAR.
 - Debug and release compilation, Room KSP, lint and APK assembly passed. Each lint report has zero errors and seven existing warnings: two `SwitchIntDef`, one `DataExtractionRules` and four `UseKtx`. Gradle also reports its existing deprecated-feature/configuration-cache notices.
 - Runtime audits: both APKs define all 12,137 runtime dependency classes from 67 resolved artifacts. Debug contains 17,141 class definitions in seven DEX files; release contains 16,365 in two. No cache-scanning APK packager was used.
@@ -35,7 +35,7 @@ No physical Android device was used. These checks do not establish Samsung radio
 
 ## PR #4 review fixes
 
-The follow-up checks passed with 139 tests in each variant, no failures, errors or skips. Regression coverage now includes rapid GPS off/on without main-loop collection, rejection of old-generation GPS callbacks and observation coordinates, clearing rejected contributions from Target statistics and graphs, and revocation after Target has already returned to its seed. Previously saved observations and per-address statistics remain intact.
+The earlier GPS/Target follow-up checks passed with 139 tests in each variant, no failures, errors or skips. Regression coverage now includes rapid GPS off/on without main-loop collection, rejection of old-generation GPS callbacks and observation coordinates, clearing rejected contributions from Target statistics and graphs, and revocation after Target has already returned to its seed. Previously saved observations and per-address statistics remain intact.
 
 Both variants passed lint and APK assembly. Lint still reports only the seven existing warnings listed above. Both APK runtime audits passed with 67 resolved artifacts and all 12,137 dependency classes present. Both APK signatures verify with the same existing certificate SHA-256 `29235354f935b7dbd62093be213712dec8b426e914fa4ed1134ee3bfa6d4d886`. The standalone core suite passed all 78 tests using JDK 21 through the runner's `--java` option. No Room schema or signing configuration changed.
 

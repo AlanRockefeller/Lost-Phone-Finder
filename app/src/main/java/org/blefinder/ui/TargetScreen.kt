@@ -41,7 +41,7 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { repo.selectTarget(null) }) { FinderIcon(R.drawable.ic_arrow_left, description = "Back to previous tab") }
             Column(Modifier.weight(1f)) {
-                Text(device.displayName ?: "Unnamed transmitter", fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(device.displayTitle(), fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 SelectionContainer { Text(device.address, fontFamily = FontFamily.Monospace, letterSpacing = 0.sp, fontSize = 11.sp, color = FinderColors.neutral400) }
             }
             AudioIndicator(state.audioMuted, state.settings.loudspeaker, repo::cycleSoundMode)
@@ -119,6 +119,10 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
                         Text(AddressClassifier.classify(device.latest).label)
                         Text("Android reported: ${device.latest.addressType}; raw type ${device.latest.metadata.androidAddressType ?: "unavailable"}")
                         Text("Vendor / protocol information", fontWeight = FontWeight.Medium)
+                        advertisementHint(device.latest)?.let { hint ->
+                            Text(hint.label)
+                            Text(hint.evidence, fontSize = 12.sp)
+                        }
                         IeeeAssignments.lookup(device.latest)?.let { assignment ->
                             Text("IEEE address assignment: ${assignment.organization} (${assignment.registry})")
                         }
@@ -191,6 +195,7 @@ fun TargetScreen(state: SearchState, device: DeviceRecord, repo: SearchRepositor
 @Composable private fun DecodedObservation(o: Observation) {
     val ad = o.advertisement; val m = o.metadata
     SelectionContainer { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        advertisementHint(o)?.let { Text("${it.label}: ${it.evidence}") }
         Text("Address: ${o.address} • ${AddressClassifier.classify(o).label} (Android reported ${o.addressType}; raw type ${m.androidAddressType ?: "unavailable"})", fontFamily = FontFamily.Monospace, letterSpacing = 0.sp)
         Text("Android name: ${o.deviceName ?: "not supplied"}\nAdvertised local name: ${ad.localName ?: "not supplied"}")
         Text("RSSI: ${o.rssi} dBm\nResult time: ${timeText(o.timestamp)}\nReceived: ${timeText(o.receivedAt)}\nAndroid monotonic timestamp: ${m.timestampNanos} ns")
