@@ -22,13 +22,13 @@ class AdvertisementHintsTest {
     }
 
     @Test fun shortAndLongFindMyFramesDoNotImplyPhoneGenerationOrAccessory() {
-        listOf("12020003", "1219" + "00".repeat(25)).forEach { payload ->
+        listOf("12022003", "1202E403", "121920" + "00".repeat(24)).forEach { payload ->
             assertEquals("Apple Find My device", advertisementHint(apple(payload))?.label)
         }
     }
 
     @Test fun proximityPairingSupportsAPossibleAccessoryIncludingCompoundAppleMessages() {
-        val pairing = "0711" + "00".repeat(17)
+        val pairing = "0719010E2055998F570000" + "AB".repeat(16)
         assertEquals("Possible Apple accessory", advertisementHint(apple(pairing))?.label)
         assertEquals("Possible Apple accessory", advertisementHint(apple("12026E03$pairing"))?.label)
         val android = observation().copy(metadata = ScanMetadata(0,
@@ -37,14 +37,33 @@ class AdvertisementHintsTest {
     }
 
     @Test fun invalidTruncatedOrNonAppleDataCannotProduceAnAccessoryHint() {
-        listOf("071100", "0711GG", "07020000", "0711" + "00".repeat(17) + "12", "0").forEach {
+        listOf("071100", "0711GG", "07020000", "0719010E2055998F570000" + "AB".repeat(16) + "12", "0").forEach {
             assertEquals("Possible Apple device", advertisementHint(apple(it))?.label)
         }
-        val pairing = apple("0711" + "00".repeat(17))
+        val pairing = apple("0719010E2055998F570000" + "AB".repeat(16))
         assertEquals("Possible Apple device", advertisementHint(pairing.copy(
             advertisement = pairing.advertisement.copy(malformed = true)))?.label)
         assertEquals("Possible Apple device", advertisementHint(pairing.copy(metadata = ScanMetadata(0, dataStatus = 2)))?.label)
-        assertNull(advertisementHint(apple("0711" + "00".repeat(17), id = 77)))
+        assertNull(advertisementHint(apple("0719010E2055998F570000" + "AB".repeat(16), id = 77)))
+    }
+
+    @Test fun completeAppleMessagesWithInvalidProtocolFieldsStayUnspecified() {
+        val invalidPairing = listOf(
+            "0703000000", // Complete TLV without the remaining pairing fields.
+            "0711" + "00".repeat(17),
+            "0719" + "00".repeat(25),
+            "0719020E2055998F570000" + "AB".repeat(16), // Wrong prefix.
+            "0719010E2055998F570001" + "AB".repeat(16)) // Wrong suffix.
+        val invalidFindMy = listOf("12020003", "12020403", "1219" + "00".repeat(25),
+            "120120", "1203200300")
+        (invalidPairing + invalidFindMy).forEach {
+            assertEquals(it, "Possible Apple device", advertisementHint(apple(it))?.label)
+            val android = observation().copy(metadata = ScanMetadata(0,
+                androidManufacturers = listOf(ManufacturerData(76, null, it))))
+            assertEquals(it, "Possible Apple device", advertisementHint(android)?.label)
+        }
+        assertEquals("Apple Find My device", advertisementHint(apple(invalidPairing.first() + "12022003"))?.label)
+        assertEquals("Possible Apple device", advertisementHint(apple("1202200312"))?.label)
     }
 
     @Test fun unknownAppleMessagesAndEmptyAdvertisementsStayUnspecified() {
@@ -67,6 +86,6 @@ class AdvertisementHintsTest {
         val o = observation().copy(advertisement = Advertisement(serviceUuids = listOf("0000fef3-0000-1000-8000-00805f9b34fb")))
         val d = DeviceRecord("A", SignalStats(), o)
         assertTrue(packetBuckets(listOf(d)).single().label.startsWith("Possible Android"))
-        assertTrue(packetBuckets(listOf(d.copy(latest = apple("12020003")))).single().label.startsWith("Apple Find My device"))
+        assertTrue(packetBuckets(listOf(d.copy(latest = apple("12022003")))).single().label.startsWith("Apple Find My device"))
     }
 }

@@ -6,11 +6,11 @@ An advertisement hint describes a protocol observed in the current packet. It is
 | --- | --- | --- |
 | Service FEF3 in the UUID list or service data, from the parser or Android metadata | Possible Android | Google Nearby advertising; other device types can also use this service |
 | Service FEED | Possible Tile tracker | A service assigned to Tile, not an identifier for a particular tracker |
-| Apple company ID 76 with a complete proximity-pairing message of type 07 and enough bytes for its prefix/model fields | Possible Apple accessory | Audio-accessory pairing evidence; the model is not confirmed |
-| Apple company ID 76 with a complete Find My message of type 12 and a two-byte or 25-byte body | Apple Find My device | Short and long protocol forms, neither of which establishes an iPhone model or an accessory category |
+| Apple company ID 76 with a complete proximity-pairing message of type 07 with a 25-byte body, prefix 01 and suffix 00 | Possible Apple accessory | Audio-accessory pairing evidence; the model is not confirmed |
+| Apple company ID 76 with a complete Find My message of type 12 and a two-byte or 25-byte body with status bit 5 set | Apple Find My device | Short and long protocol forms, neither of which establishes an iPhone model or an accessory category |
 | Other manufacturer data advertising company ID 76 | Possible Apple device | The device type remains unknown |
 
-The Apple parser checks the entire type/length/value sequence before using a message hint. It handles multiple messages in one manufacturer payload. Malformed advertisements, incomplete controller data, invalid hex and incomplete message bodies cannot qualify for the more specific Apple labels. It does not decode encrypted identifiers or change the identity engine's scoring. An Apple-looking manufacturer payload from another company ID does not receive an Apple label.
+The Apple parser checks the entire type/length/value sequence before using a message hint. It handles multiple messages in one manufacturer payload. Pairing bodies must contain the complete documented cleartext fields and encrypted payload, including the fixed prefix and suffix. Find My bodies must set status bit 5, as specified in Tables 5-3 and 5-4 of the archived accessory specification. Complete TLVs that fail these checks retain the general Possible Apple device label. Malformed advertisements, incomplete controller data, invalid hex and incomplete message bodies cannot qualify for the more specific Apple labels. It does not decode encrypted identifiers or change the identity engine's scoring. An Apple-looking manufacturer payload from another company ID does not receive an Apple label.
 
 The short Find My messages in the October field recording are insufficient to label a device as AirPods. A separate proximity-pairing message can support the possible-accessory label. No automatic Apple Phone label was added because this data does not establish one. Packet-profile groups continue to compare formats and can contain several physical devices.
 
@@ -36,7 +36,11 @@ A sparse standalone trail remains useful for showing receiver movement or contin
 
 This changes future recording. Previously saved sessions and exports are retained in full, and the exporter still includes all stored standalone fixes. There is no automatic cleanup, Room migration or export-schema change. Scanning, audio, radio configuration and the existing private signing configuration are unchanged.
 
-## Verification
+## Review correction verification
+
+The payload validation correction passed all 160 unit tests in each variant and both lint checks, with zero errors and the same seven existing warnings. The first debug run failed the unchanged `duplicateStartRestoresForegroundNotificationDuringPendingStartup` test; the full rerun passed. Regression coverage rejects incomplete pairing fields, invalid prefix/suffix bytes and Find My bodies missing status bit 5, including Android metadata inputs. No new APK was packaged or published for this correction.
+
+## Original build verification
 
 Regression coverage checks short/long Apple messages, compound proximity-pairing messages, Android metadata fallback, malformed inputs, uncertain labels and raw-name preservation. GPS tests cover minute boundaries, movement, clock changes, duplicate/late callbacks, invalid fixes, stop/resume, new sessions, rapid GPS generation changes and complete attached BLE coordinates in exports.
 
